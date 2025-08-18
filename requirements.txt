@@ -2,4 +2,3 @@ streamlit
 pandas
 openpyxl
 plotly
-Agrega dependencias necesarias para el dashboard
