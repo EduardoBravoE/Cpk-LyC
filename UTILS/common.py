@@ -57,14 +57,16 @@ CATALOGO_PATRON = "Claves*Rechazo*GPT*.xls*"
 def get_paths() -> dict[str, Path]:
     """
     Devuelve rutas canónicas en base a la ubicación de este módulo (UTILS/common.py).
+    Se usan nombres de carpeta en mayúsculas para coincidir con la estructura del proyecto
+    y asegurar la compatibilidad con sistemas sensibles a mayúsculas/minúsculas como Linux.
     """
     utils_dir = Path(__file__).resolve().parent           # .../UTILS
     root = utils_dir.parent                               # .../Proyecto Cpk's
     paths = {
         "ROOT": root,
-        "DATA": root / "datos",
-        "LINEAS_DIR": root / "datos" / "lineas",
-        "COPLES_DIR": root / "datos" / "coples",
+        "DATA": root / "DATOS",
+        "LINEAS_DIR": root / "DATOS" / "LINEAS",
+        "COPLES_DIR": root / "DATOS" / "COPLES",
         "REFS_DIR": root / "REFERENCIAS",
         "CATALOGO_PATH": (root / "REFERENCIAS" / CATALOGO_EXACTO),
     }
