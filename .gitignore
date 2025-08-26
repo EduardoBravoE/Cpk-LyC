@@ -1,0 +1,19 @@
+# .gitignore
+
+# Ignorar archivos de datos
+# Es una mala práctica subir datos a un repositorio de Git.
+# Los datos deben vivir en una base de datos, un bucket de S3, o ser cargados manualmente.
+*.xlsx
+*.xls
+*.csv
+
+# Ignorar carpetas de entorno virtual de Python
+venv/
+.venv/
+env/
+.env
+
+# Ignorar archivos de caché de Python y de sistema
+__pycache__/
+*.pyc
+.DS_Store
