@@ -19,7 +19,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # Importaciones centralizadas
-from UTILS.common import DOM_LINEAS, cargar_area, cargar_rechazos_long_area
+from UTILS.common import DOM_LINEAS
 from UTILS.confiabilidad_panel import render_confiabilidad_gourmet
 from UTILS.insights import (
     prepare_df_for_analysis,
@@ -44,17 +44,40 @@ def render_lineas_dashboard():
     Esta función no recibe argumentos. Carga y procesa los datos internamente,
     y renderiza los componentes de la UI de Streamlit.
     """
-    st.header("Análisis de Productos Críticos - Líneas")
+    st.header("Análisis de Producción y Pérdidas - Líneas")
 
-    # --- 1. Carga y preparación de datos ---
-    with st.spinner("Cargando y preparando datos de Líneas..."):
-        # `cargar_area` devuelve una tupla (df, df), tomamos el primero.
-        # Asumimos que siempre devuelve una tupla, ignoramos el segundo elemento.
-        df_raw, _ = cargar_area(DOM_LINEAS)
+    # --- 1. Carga de datos vía File Uploader ---
+    st.info("Por favor, carga los archivos de datos para comenzar el análisis.")
+
+    # Uploader para datos de producción
+    uploaded_prod_files = st.file_uploader(
+        "1. Carga tus archivos Excel de Producción de Líneas",
+        type=["xlsx", "xls"],
+        accept_multiple_files=True,
+        key="lineas_prod_uploader"
+    )
+
+    if not uploaded_prod_files:
+        st.warning("Esperando la carga de los archivos de datos de producción...")
+        return
+
+    with st.spinner("Cargando y preparando datos de Producción..."):
+        try:
+            # Reemplazamos `cargar_area` por una lectura directa de los archivos subidos.
+            # Asumimos que los datos de producción están en la primera hoja de cada Excel.
+            # Si la estructura es más compleja, este punto puede necesitar ajustes.
+            list_of_dfs = [pd.read_excel(file) for file in uploaded_prod_files]
+            df_raw = pd.concat(list_of_dfs, ignore_index=True)
+            st.success(f"Cargados {len(uploaded_prod_files)} archivo(s) de producción.")
+        except Exception as e:
+            st.error("Ocurrió un error al leer los archivos de producción.")
+            st.exception(e)
+            return
+        
         df_prepared = prepare_df_for_analysis(df_raw)
 
     if df_prepared.empty:
-        st.warning("No hay datos disponibles para el área de Líneas.")
+        st.warning("Los archivos de producción cargados no contienen datos válidos o están vacíos.")
         return
 
     # --- 2. Sidebar de filtros ---
@@ -123,6 +146,7 @@ def render_lineas_dashboard():
         st.info("No se encontraron resultados con los filtros seleccionados.")
         return
 
+    st.subheader("Análisis de Productos Críticos")
     # --- 4. Cálculo de "Producto Crítico" ---
     df_critico = compute_producto_critico(
         df_filtered,
@@ -153,22 +177,34 @@ def render_lineas_dashboard():
     # --- Análisis de Pérdidas (TI y Rechazos) ---
     st.subheader("Análisis de Pérdidas (Tiempos Improductivos y Rechazos)")
 
+    # Uploader para datos de rechazos
+    uploaded_rechazos_files = st.file_uploader(
+        "2. Carga tus archivos Excel de Rechazos/Pérdidas (Opcional)",
+        type=["xlsx", "xls"],
+        accept_multiple_files=True,
+        key="lineas_rechazos_uploader"
+    )
+
+    df_rechazos_long = pd.DataFrame() # Inicializar como vacío
+    if uploaded_rechazos_files:
+        with st.spinner("Cargando datos de Rechazos..."):
+            try:
+                # Reemplazamos `cargar_rechazos_long_area`.
+                list_of_dfs_rechazos = [pd.read_excel(file) for file in uploaded_rechazos_files]
+                df_rechazos_long = pd.concat(list_of_dfs_rechazos, ignore_index=True)
+                st.success(f"Cargados {len(uploaded_rechazos_files)} archivo(s) de rechazos.")
+            except Exception as e:
+                st.error("Ocurrió un error al leer los archivos de rechazos.")
+                st.exception(e)
+
     # Controles para el análisis
     c1, c2, c3 = st.columns(3)
     top_n_rechazo = c1.slider("Top N Claves de Rechazo", 5, 25, 10, key="lineas_rechazo_top_n")
     desglose_rechazo = c2.selectbox("Desglose de Rechazos por", ["Global", "Máquina", "Turno"], key="lineas_rechazo_desglose")
     threshold_high_rechazo = c3.slider("Umbral de Similitud Alto (%)", 70, 100, 92, key="lineas_rechazo_threshold_high", help="Puntaje para aceptar un match automáticamente.")
-    threshold_low_rechazo = max(70.0, threshold_high_rechazo - 10.0)
-
-    # Carga y filtrado de datos de pérdidas (contiene tanto rechazos como TI potenciales)
-    df_rechazos_long = cargar_rechazos_long_area(
-        dominio=DOM_LINEAS,
-        threshold_high=threshold_high_rechazo,
-        threshold_low=threshold_low_rechazo
-    )
 
     if df_rechazos_long.empty:
-        st.info("No se encontraron datos de rechazo o TI para analizar con el umbral actual.")
+        st.info("No se han cargado datos de rechazo o los archivos están vacíos.")
     else:
         # Aplicar los mismos filtros del sidebar
         df_rechazos_filtrado = apply_filters_long(
