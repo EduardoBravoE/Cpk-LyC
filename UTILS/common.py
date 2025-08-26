@@ -648,11 +648,25 @@ def cargar_lineas_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
     """
     paths = get_paths()
     carpeta = paths["LINEAS_DIR"]
+
+    # --- INICIO DEBUG ---
+    # Estos mensajes aparecerán en los logs de Streamlit Cloud
+    print("--- DEBUG: Iniciando carga para LINEAS ---")
+    print(f"Ruta base del proyecto (ROOT): {paths['ROOT']}")
+    print(f"Intentando acceder a la carpeta: {carpeta}")
+    if not carpeta.exists():
+        print(f"ERROR DE RUTA: La ruta NO EXISTE: {carpeta}")
+    elif not carpeta.is_dir():
+        print(f"ERROR DE RUTA: La ruta EXISTE pero NO ES UNA CARPETA: {carpeta}")
+    else:
+        print(f"ÉXITO DE RUTA: La ruta es una carpeta válida: {carpeta}")
+    # --- FIN DEBUG ---
+
     fuentes = listar_fuentes(carpeta, mode="dir", recursive=recursive)
 
     frames: list[pd.DataFrame] = []
     manifest: list[dict] = []
-
+    print(f"DEBUG: listar_fuentes encontró {len(fuentes)} archivo(s): {[f.name for f in fuentes]}")
     for ruta in fuentes:
         info = _manifest_row(ruta)
         sheets_ok: list[str] = []
@@ -697,12 +711,26 @@ def cargar_coples_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
     """
     paths = get_paths()
     carpeta = paths["COPLES_DIR"]
+
+    # --- INICIO DEBUG ---
+    # Estos mensajes aparecerán en los logs de Streamlit Cloud
+    print("--- DEBUG: Iniciando carga para COPLES ---")
+    print(f"Ruta base del proyecto (ROOT): {paths['ROOT']}")
+    print(f"Intentando acceder a la carpeta: {carpeta}")
+    if not carpeta.exists():
+        print(f"ERROR DE RUTA: La ruta NO EXISTE: {carpeta}")
+    elif not carpeta.is_dir():
+        print(f"ERROR DE RUTA: La ruta EXISTE pero NO ES UNA CARPETA: {carpeta}")
+    else:
+        print(f"ÉXITO DE RUTA: La ruta es una carpeta válida: {carpeta}")
+    # --- FIN DEBUG ---
+
     # 1. Descubrimiento de fuentes específico para Coples
     fuentes = listar_fuentes(carpeta, mode="dir", recursive=recursive, patterns=("BDD_COP_*.xlsx",))
 
     frames: list[pd.DataFrame] = []
     manifest: list[dict] = []
-
+    print(f"DEBUG: listar_fuentes encontró {len(fuentes)} archivo(s): {[f.name for f in fuentes]}")
     for ruta in fuentes:
         info = _manifest_row(ruta)
         
