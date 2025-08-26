@@ -1,19 +1,65 @@
-# .gitignore
+# Python
+##########
 
-# Ignorar archivos de datos
-# Es una mala práctica subir datos a un repositorio de Git.
-# Los datos deben vivir en una base de datos, un bucket de S3, o ser cargados manualmente. (Comentado para este proyecto)
-# *.xlsx
-# *.xls
-*.csv
+### Python ###
+__pycache__/
+*.py[cod]
+*$py.class
 
-# Ignorar carpetas de entorno virtual de Python
+### Distribution / packaging ###
+dist/
+build/
+develop-eggs/
+*.egg-info/
+*.egg
+
+### PyInstaller ###
+#  Usually these files are written by a CI script in a temporary folder.
+#  If you do generated them in your workspace, you probably want to ignore them.
+*.spec
+
+### Installer logs ###
+pip-log.txt
+
+### Unit test / coverage reports ###
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+
+### Environments ###
 venv/
 .venv/
 env/
 .env
 
-# Ignorar archivos de caché de Python y de sistema
-__pycache__/
-*.pyc
+### VS Code ###
+.vscode/
+
+### Jupyter Notebook ###
+.ipynb_checkpoints
+
+### IDEs ###
+.idea/
+
+### OS-specific ###
 .DS_Store
+Thumbs.db
+
+### Executables ###
+*.exe
+*.msi
+
+### Archivos de datos viejos en la raíz ###
+BASE DE DATOS ENERO - DICIEMBRE 2024.xls
+"BDD 2024 L*.xlsx"
+BDD ABRIL 2025.xlsx
+BDD ENERO 2025.xlsx
+BDD FEBRERO 2025.xlsx
+BDD JUNIO 2025.xlsx
+BDD MARZO 2025.xlsx
+BDD MAYO 2025.xlsx
+Claves de Rechazo - GPT.xlsx
