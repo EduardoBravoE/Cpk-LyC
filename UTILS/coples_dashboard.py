@@ -19,7 +19,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # Importaciones centralizadas
-from UTILS.common import DOM_COPLES, cargar_area, cargar_rechazos_long_area
+from UTILS.common import (
+    DOM_COPLES,
+    cargar_coples_con_manifiesto,
+    render_manifest,
+    cargar_rechazos_long_area,
+)
 from UTILS.confiabilidad_panel import render_confiabilidad_gourmet
 from UTILS.insights import (
     prepare_df_for_analysis,
@@ -47,14 +52,21 @@ def render_coples_dashboard():
 
     # --- 1. Carga y preparación de datos ---
     with st.spinner("Cargando y preparando datos de Coples..."):
-        # `cargar_area` devuelve una tupla (df, df), tomamos el primero.
-        # `cargar_area` siempre devuelve una tupla (df_datos, df_manifiesto). Ignoramos el manifiesto.
-        df_raw, _ = cargar_area(DOM_COPLES)
-        df_prepared = prepare_df_for_analysis(df_raw)
+        # Usamos la función con manifiesto para obtener más información de depuración.
+        df_raw, manifest_df = cargar_coples_con_manifiesto(recursive=False)
 
-    if df_prepared.empty:
-        st.warning("No hay datos disponibles para el área de Coples.")
+    # Mostramos el manifiesto en un expander. Esto es clave para el diagnóstico.
+    with st.expander("Ver Manifiesto de Carga de Archivos - Coples"):
+        render_manifest(manifest_df, title="Archivos de Coples Encontrados")
+
+    if df_raw.empty:
+        st.error(
+            "No se encontraron datos de producción para Coples. Revisa el manifiesto de carga de arriba "
+            "y verifica que los archivos Excel estén en la carpeta 'DATOS/COPLES' en tu repositorio de GitHub."
+        )
         return
+    else:
+        df_prepared = prepare_df_for_analysis(df_raw)
 
     # --- 2. Sidebar de filtros ---
     st.sidebar.title("Filtros - Coples")

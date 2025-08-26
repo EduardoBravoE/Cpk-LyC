@@ -19,7 +19,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # Importaciones centralizadas
-from UTILS.common import DOM_LINEAS, cargar_area, cargar_rechazos_long_area
+from UTILS.common import (
+    DOM_LINEAS,
+    cargar_lineas_con_manifiesto,
+    render_manifest,
+    cargar_rechazos_long_area,
+)
 from UTILS.confiabilidad_panel import render_confiabilidad_gourmet
 from UTILS.insights import (
     prepare_df_for_analysis,
@@ -48,20 +53,22 @@ def render_lineas_dashboard():
 
     # --- 1. Carga y preparación de datos ---
     with st.spinner("Cargando y preparando datos de Líneas..."):
-        try:
-            # `cargar_area` busca y consolida los archivos Excel en la ruta de datos.
-            # Devuelve una tupla (df, df), tomamos el primero para producción.
-            df_raw, _ = cargar_area(DOM_LINEAS)
-        except Exception as e:
-            st.error(f"No se pudieron cargar los datos de producción para Líneas. Verifica que los archivos existan en la carpeta de datos.")
-            st.exception(e)
-            return
+        # Usamos la función con manifiesto para obtener más información de depuración.
+        # Esta función devuelve los datos y una tabla con el estado de la carga de cada archivo.
+        df_raw, manifest_df = cargar_lineas_con_manifiesto(recursive=False)
 
-        df_prepared = prepare_df_for_analysis(df_raw)
+    # Mostramos el manifiesto en un expander. Esto es clave para el diagnóstico.
+    with st.expander("Ver Manifiesto de Carga de Archivos"):
+        render_manifest(manifest_df, title="Archivos de Líneas Encontrados")
 
-    if df_prepared.empty:
-        st.warning("No hay datos disponibles para el área de Líneas.")
+    if df_raw.empty:
+        st.error(
+            "No se encontraron datos de producción para Líneas. Revisa el manifiesto de carga de arriba "
+            "y verifica que los archivos Excel estén en la carpeta 'DATOS/LINEAS' en tu repositorio de GitHub."
+        )
         return
+    else:
+        df_prepared = prepare_df_for_analysis(df_raw)
 
     # --- 2. Sidebar de filtros ---
     st.sidebar.title("Filtros - Líneas")
