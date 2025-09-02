@@ -499,10 +499,15 @@ def compute_top_claves_rechazo(
 
     # 2. Construir dinámicamente las columnas de agrupación
     group_cols = ["ClaveCatalogo", desc_col_name, "SubCategoria"]
-    if desglose == "Máquina" and "Maquina" in df_norm.columns:
-        group_cols.append("Maquina")
-    elif desglose == "Turno" and "Turno" in df_norm.columns:
-        group_cols.append("Turno")
+    # Soportar desglose combinado: 'Turno + Máquina' o 'Máquina + Turno'
+    desglose_norm = (desglose or "").replace(" ", "")
+    if (desglose == "Máquina" or "Máquina" in desglose_norm) and "Maquina" in df_norm.columns:
+        # Añadir Máquina si corresponde y existe
+        if "Maquina" not in group_cols:
+            group_cols.append("Maquina")
+    if (desglose == "Turno" or "Turno" in desglose_norm) and "Turno" in df_norm.columns:
+        if "Turno" not in group_cols:
+            group_cols.append("Turno")
 
     # 3. Realizar la agregación
     df_top = (
@@ -575,9 +580,14 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
     # 2. Determinar la columna de color y degradar si es necesario
     color_col = None
     title_desglose = desglose
-    if desglose == "Máquina":
+    hover_data = None
+    # Support combined desglose 'Turno + Máquina'
+    if desglose == "Máquina" or desglose == "Turno + Máquina":
         if "Maquina" in df_top_std.columns:
             color_col = "Maquina"
+            # If Turno also present and requested, include in hover
+            if "Turno" in df_top_std.columns and "Turno" in (desglose or ""):
+                hover_data = ["Turno"]
         else:
             title_desglose = "Global (Máquina no disponible)"
             if "SubCategoria" in df_top_std.columns:
@@ -589,7 +599,7 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
             title_desglose = "Global (Turno no disponible)"
             if "SubCategoria" in df_top_std.columns:
                 color_col = "SubCategoria"
-    else:  # Global
+    else:  # Global or unknown
         if "SubCategoria" in df_top_std.columns:
             color_col = "SubCategoria"
 
@@ -610,6 +620,7 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
         text="Pzas",
         title=f"Top Claves de Rechazo por {title_desglose}",
         color_discrete_sequence=px.colors.qualitative.Vivid,
+        hover_data=hover_data,
         labels={
             "Pzas": "Total Piezas Rechazadas",
             "EtiquetaClave": "Clave de Rechazo",

@@ -244,7 +244,7 @@ def render_lineas_dashboard(datos_rechazos_cache: dict[str, pd.DataFrame] = None
         # Controles para el análisis de rechazos
         c1, c2, c3 = st.columns(3)
         top_n_rechazo = c1.slider("Top N Claves de Rechazo", 5, 25, 10, key="lineas_rechazo_top_n")
-        desglose_rechazo = c2.selectbox("Desglose de Rechazos por", ["Global", "Máquina", "Turno"], key="lineas_rechazo_desglose")
+        desglose_rechazo = c2.selectbox("Desglose de Rechazos por", ["Global", "Máquina", "Turno", "Turno + Máquina"], key="lineas_rechazo_desglose")
         threshold_high_rechazo = c3.slider("Umbral de Similitud Alto (%)", 70, 100, 92, key="lineas_rechazo_threshold_high", help="Puntaje para aceptar un match automáticamente.")
         threshold_low_rechazo = max(70.0, threshold_high_rechazo - 10.0)
 
