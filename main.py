@@ -16,6 +16,16 @@ from __future__ import annotations
 import streamlit as st
 import pandas as pd
 import time
+import sys
+from pathlib import Path
+
+# Ensure repository root is on sys.path so `import UTILS...` works on platforms
+# (Streamlit Cloud, Docker images, CI) where the working directory may not be
+# automatically added to PYTHONPATH. This is safe locally and a no-op if
+# the path is already present.
+_REPO_ROOT = Path(__file__).resolve().parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 # 1. Imports mínimos y explícitos con compatibilidad
 # ===================================================
