@@ -1,0 +1,3 @@
+Dominio,SourceCol,DescPattern,ClaveCatalogo,Forzar,Nota
+# Ejemplo de override: Si SourceCol es 'Rechazo X' en LINEAS, forzar a Clave 'A01'
+# LINEAS,Rechazo X,,A01,SI,Descripción forzada para caso especial

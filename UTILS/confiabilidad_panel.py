@@ -1,10 +1,10 @@
 # UTILS/confiabilidad_panel.py
 
 """
-Módulo de UI unificado para el panel de Confiabilidad.
+Módulo de UI unificado para el panel de Confiabilidad de Mapeo de Claves de Rechazo.
 
 Este módulo contiene todas las funciones de Streamlit para renderizar el panel
-de análisis de confiabilidad de mapeo, tanto para Líneas como para Coples.
+de análisis de confiabilidad del mapeo de claves de rechazo, tanto para Líneas como para Coples.
 
 Funciones públicas:
 - render_confiabilidad_panel: Punto de entrada principal para dibujar el panel.
@@ -13,7 +13,12 @@ Funciones públicas:
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import time
 from typing import Dict, Any, List, Literal
+
+# Suprimir warnings de Streamlit cuando se importa fuera del contexto de la app
+import warnings
+warnings.filterwarnings("ignore", message="No runtime found, using MemoryCacheStorageManager")
 
 # Importar constantes canónicas para el dominio
 from UTILS.common import DOM_LINEAS, DOM_COPLES
@@ -22,11 +27,10 @@ from UTILS.common import DOM_LINEAS, DOM_COPLES
 # Se importan todas las funciones de negocio para mantener un único punto de entrada.
 # Las funciones no utilizadas pueden ser eliminadas por el linter si se configura.
 from UTILS.insights import (
-    build_threshold_comparison,
-    scan_thresholds_for_stability,
-    suggest_threshold_high,
     compute_clave_drilldown_data,     # Usado en drilldown
-    build_clave_drilldown_figure      # Usado en drilldown
+    build_clave_drilldown_figure,     # Usado en drilldown
+    get_cached_drilldown_results,     # Cache optimizado para drilldown
+    precargar_drilldown_top_claves,   # Precarga inteligente de claves más usadas
 )
 
 # Se importa de forma segura el helper para la auditoría de mapeo, que es opcional.
@@ -35,6 +39,23 @@ try:
     from UTILS.insights import get_mapping_audit
 except ImportError:
     get_mapping_audit = None  # Fallback seguro
+
+def _clear_drilldown_cache(dominio: str):
+    """
+    Limpia el cache del drilldown para un dominio específico de manera segura.
+    """
+    try:
+        keys_to_remove = []
+        for key in st.session_state.keys():
+            if key.startswith(f"{dominio}_") and key != f"drilldown_clave_{dominio}":
+                keys_to_remove.append(key)
+
+        for key in keys_to_remove:
+            del st.session_state[key]
+
+    except Exception as e:
+        # Si hay error limpiando, continuar sin problemas
+        pass
 
 
 def _normalize_dominio_for_catalog(value: Any) -> tuple[str, str | None]:
@@ -79,8 +100,8 @@ def _compute_confiabilidad_resumen(df: pd.DataFrame, active_threshold: float) ->
     df_unique_cols = df.drop_duplicates(subset=['SourceCol'])
     total_filas = len(df_unique_cols)
 
-    if 'score' in df_unique_cols.columns:
-        mapeadas = df_unique_cols[df_unique_cols['score'] >= active_threshold].shape[0]
+    if 'match_score' in df_unique_cols.columns:
+        mapeadas = df_unique_cols[df_unique_cols['match_score'] >= active_threshold].shape[0]
         no_mapeadas = total_filas - mapeadas
     else:
         mapeadas = None
@@ -88,8 +109,8 @@ def _compute_confiabilidad_resumen(df: pd.DataFrame, active_threshold: float) ->
 
     # Piezas afectadas (suma de 'Pzas' de todas las filas mapeadas)
     pzas_afectadas = None
-    if 'Pzas' in df.columns and 'score' in df.columns:
-        df_mapeado = df[df['score'] >= active_threshold]
+    if 'Pzas' in df.columns and 'match_score' in df.columns:
+        df_mapeado = df[df['match_score'] >= active_threshold]
         pzas_afectadas = df_mapeado['Pzas'].sum()
         if pd.isna(pzas_afectadas): 
             pzas_afectadas = 0
@@ -125,8 +146,8 @@ def _render_resumen(df_full: pd.DataFrame, active_threshold: float, config: Dict
     else:
         val_map = "N/D"
         val_nomap = "N/D"
-        help_map = "No se pudo calcular (falta columna 'score')."
-        help_nomap = "No se pudo calcular (falta columna 'score')."
+        help_map = "No se pudo calcular (falta columna 'match_score')."
+        help_nomap = "No se pudo calcular (falta columna 'match_score')."
 
     pzas_val = f"{metricas.get('pzas_afectadas', 0):,}" if metricas.get('pzas_afectadas') is not None else "N/D"
 
@@ -148,13 +169,6 @@ def _render_resumen(df_full: pd.DataFrame, active_threshold: float, config: Dict
             label="Total Pzas Afectadas",
             value=pzas_val
         )
-    
-    # Mostrar mensajes de rechazo si existen
-    rechazos = df_full.attrs.get('rechazos_long_messages', [])
-    if rechazos:
-        with st.expander("⚠️ Mensajes del Proceso de Mapeo", expanded=True):
-            for msg in rechazos:
-                st.warning(msg)
 
 
 def _render_diagnostico_mapeo(df: pd.DataFrame, config: Dict[str, Any]):
@@ -162,155 +176,11 @@ def _render_diagnostico_mapeo(df: pd.DataFrame, config: Dict[str, Any]):
     with st.expander("Diagnóstico de Mapeo"):
         st.info("Auditoría detallada del mapeo por cada columna fuente (`SourceCol`).")
         
-        cols_a_mostrar = ['SourceCol', 'ClaveCatalogo', 'score', 'Mensaje']
+        cols_a_mostrar = ['SourceCol', 'ClaveCatalogo', 'match_score', 'Mensaje']
         df_display = df[[col for col in cols_a_mostrar if col in df.columns]]
         
         st.dataframe(df_display, use_container_width=True)
 
-
-def _render_comparar_umbrales(df: pd.DataFrame, config: Dict[str, Any]):
-    """Renderiza la UI para comparar dos umbrales de confianza."""
-    with st.expander("Análisis de Estabilidad de Mapeo (T1 vs T2)"):
-        st.info("Compare cómo cambia el conjunto de mapeos al variar el umbral de confianza.")
-        
-        dominio_cfg = config.get('dominio') or config.get('area_domain') or config.get('area')
-        dominio_norm, warning = _normalize_dominio_for_catalog(dominio_cfg)
-        if warning:
-            st.warning(warning)
-
-        dominio_key_part = config.get('dominio', 'default')
-        defaults = config.get('umbrales_default', (88, 90))
-        # Usar 'top_n' del config del dashboard, con 10 como default.
-        top_n_default = int(config.get('top_n', 10))
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            umbral1 = st.slider(
-                "Umbral de Confianza T1 (%)", 
-                min_value=70, max_value=100, value=defaults[0], step=1
-            )
-        with col2:
-            umbral2 = st.slider(
-                "Umbral de Confianza T2 (%)",
-                min_value=70, max_value=100, value=defaults[1], step=1
-            )
-        with col3:
-            top_n_compare = st.slider("Top-N para comparación", 5, 25, top_n_default, key=f"{dominio_key_part}_compare_topn")
-
-        if get_mapping_audit is None:
-            st.error("La función `get_mapping_audit` no está disponible. No se puede realizar la comparación.")
-            st.info("Asegúrate de que `UTILS/insights.py` exporta la función `get_mapping_audit`.")
-            return
-
-        with st.spinner(f"Comparando umbrales {umbral1}% y {umbral2}%..."):
-            try:
-                # La llamada ahora usa el dominio normalizado, no el DataFrame.
-                audit_t1 = get_mapping_audit(dominio=dominio_norm, threshold_high=umbral1, threshold_low=max(70.0, umbral1 - 10.0))
-                audit_t2 = get_mapping_audit(dominio=dominio_norm, threshold_high=umbral2, threshold_low=max(70.0, umbral2 - 10.0))
-
-                # Delegar cálculo a helper oficial de insights.py.
-                # Se asume que la firma real solo requiere los dos dataframes de auditoría y el top_n.
-                # Los mensajes de rechazo (rech_long) son para diagnóstico general y no se pasan aquí,
-                # lo que resuelve el TypeError.
-                payload = build_threshold_comparison(
-                    audit_t1=audit_t1,
-                    audit_t2=audit_t2,
-                    top_n=top_n_compare
-                )
-            except Exception as e:
-                st.error("Ocurrió un error al comparar los umbrales.")
-                st.exception(e)
-                return
-
-        st.metric(
-            label=f"Similaridad Jaccard (Top-{top_n_compare})",
-            value=f"{payload.get('jaccard_top_n', 0.0):.1%}",
-            help="Mide la similitud entre las dos listas Top-N. 100% significa que son idénticas."
-        )
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write(f"**Claves que ENTRAN al Top-{top_n_compare} con T2={umbral2}%**")
-            st.dataframe(pd.DataFrame(payload.get("keys_in", []), columns=["Clave"]))
-        with c2:
-            st.write(f"**Claves que SALEN del Top-{top_n_compare} con T2={umbral2}%**")
-            st.dataframe(pd.DataFrame(payload.get("keys_out", []), columns=["Clave"]))
-
-        with st.expander("Ver desglose de decisiones de mapeo"):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write(f"**Decisiones con T1={umbral1}%**")
-                st.dataframe(pd.DataFrame(list(payload.get("summary_t1", {}).items()), columns=["Causa", "Cantidad"]))
-            with col2:
-                st.write(f"**Decisiones con T2={umbral2}%**")
-                st.dataframe(pd.DataFrame(list(payload.get("summary_t2", {}).items()), columns=["Causa", "Cantidad"]))
-
-
-def _render_curva_estabilidad(df: pd.DataFrame, config: Dict[str, Any]):
-    """Renderiza la curva de estabilidad y la recomendación de umbral."""
-    with st.expander("Curva de Estabilidad y Umbral Recomendado"):
-        st.info("Visualice la estabilidad del mapeo y obtenga un umbral recomendado para maximizar la consistencia.")
-        
-        dominio_cfg = config.get('dominio') or config.get('area_domain') or config.get('area')
-        dominio_norm, warning = _normalize_dominio_for_catalog(dominio_cfg)
-        if warning:
-            st.warning(warning)
-
-        dominio_key_part = config.get('dominio', 'default')
-        session_key = f"temp_threshold_{dominio_key_part}"
-
-        scan_range = st.slider(
-            "Rango de Umbrales a Escanear (%)",
-            min_value=70, max_value=99, value=(80, 98),
-            key=f"scan_range_{dominio_key_part}"
-        )
-        
-        thresholds_to_scan = list(range(scan_range[0], scan_range[1] + 1))
-        top_n = int(config.get('top_n', 10))
-
-        with st.spinner(f"Escaneando umbrales de {scan_range[0]}% a {scan_range[1]}%..."):
-            # La llamada ahora usa el dominio normalizado, no el DataFrame.
-            # Esto resuelve el ValueError de "Operands are not aligned".
-            df_curva = scan_thresholds_for_stability(
-                dominio=dominio_norm, 
-                thresholds=thresholds_to_scan, 
-                top_n=top_n
-            )
-            recommended_t = suggest_threshold_high(df_curva)
-
-        if not df_curva.empty:
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.metric(
-                    label="Umbral Alto Recomendado",
-                    value=f"{recommended_t:.0f}%",
-                    help="Umbral que ofrece el mejor balance entre estabilidad (Jaccard) y mínima ambigüedad (zona gris)."
-                )
-
-                def set_temp_threshold():
-                    st.session_state[session_key] = recommended_t
-
-                def clear_temp_threshold():
-                    if session_key in st.session_state:
-                        del st.session_state[session_key]
-
-                st.button("Probar Umbral Recomendado", on_click=set_temp_threshold, use_container_width=True)
-                st.button("Restaurar Umbral Original", on_click=clear_temp_threshold, use_container_width=True)
-
-            with col2:
-                fig = px.line(
-                    df_curva,
-                    x='T',
-                    y='Jaccard_T_Tplus2',
-                    title='Estabilidad del Mapeo vs. Umbral de Confianza',
-                    labels={'T': 'Umbral de Confianza (%)', 'Jaccard_T_Tplus2': 'Índice de Jaccard (Estabilidad)'}
-                )
-                fig.add_vline(x=recommended_t, line_dash="dash", line_color="green", annotation_text="Recomendado")
-                fig.update_yaxes(range=[0, 1])
-                fig.update_layout(yaxis_tickformat=".0%")
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("No hay suficientes datos para generar la curva de estabilidad.")
 
 def _summarize_fracciones_pzas(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -470,61 +340,15 @@ def _render_gourmet_cobertura(df: pd.DataFrame, config: Dict[str, Any]):
             for msg in messages:
                 st.warning(msg)
 
-def _render_gourmet_estabilidad(config: Dict[str, Any]):
-    """Renderiza la sección G2: Estabilidad de Umbral (Lite, on-demand)."""
-    st.subheader("G2. Estabilidad de Umbral (Lite)")
-    
-    session_key = f"gourmet_stability_result_{config.get('dominio', 'default')}"
-
-    if st.button("Calcular Estabilidad (Lite)"):
-        with st.spinner("Calculando..."):
-            dominio_norm, warning = _resolve_domain_constant(config)
-            if warning:
-                st.warning(warning)
-            
-            thresholds_to_scan = config.get('t_values', [80, 85, 88, 90, 92, 95])
-            top_n = int(config.get('top_n', 10))
-
-            try:
-                df_curva = scan_thresholds_for_stability(
-                    dominio=dominio_norm, thresholds=thresholds_to_scan, top_n=top_n
-                )
-                recommended_t = suggest_threshold_high(df_curva) if 'suggest_threshold_high' in globals() and callable(suggest_threshold_high) else None
-                st.session_state[session_key] = {"df_curva": df_curva, "recommended_t": recommended_t}
-            except Exception as e:
-                st.error("No se pudo calcular la estabilidad.")
-                st.exception(e)
-                if session_key in st.session_state:
-                    del st.session_state[session_key]
-
-    if session_key in st.session_state:
-        result = st.session_state[session_key]
-        df_curva, recommended_t = result["df_curva"], result["recommended_t"]
-
-        if not df_curva.empty:
-            fig = px.line(
-                df_curva, x='T', y='Jaccard_T_Tplus2', title='Estabilidad vs. Umbral (Lite)',
-                labels={'T': 'Umbral (%)', 'Jaccard_T_Tplus2': 'Estabilidad'}, markers=True
-            )
-            fig.update_yaxes(range=[0, 1], tickformat=".0%")
-            if recommended_t:
-                fig.add_vline(x=recommended_t, line_dash="dash", line_color="green", annotation_text=f"Recomendado: {recommended_t}%")
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No se generaron datos de estabilidad para el rango de umbrales seleccionado.")
-    else:
-        st.info("Presione el botón para ejecutar el análisis de estabilidad con una selección de umbrales clave.")
-
-
 def _render_drilldown_clave(df: pd.DataFrame, config: Dict[str, Any]):
     """Permite el análisis detallado por una ClaveCatalogo específica."""
     unificar_perdidas = config.get('unificar_perdidas', False)
-    
+
     expander_title = (
-        "Análisis de Pérdidas (Tiempos Improductivos y Rechazos)" 
+        "Análisis de Pérdidas (Tiempos Improductivos y Rechazos)"
         if unificar_perdidas else "Drilldown por Clave de Rechazo"
     )
-    
+
     with st.expander(expander_title):
         if unificar_perdidas:
             st.info("Análisis unificado de claves de rechazo y tiempos improductivos no mapeados.")
@@ -539,7 +363,7 @@ def _render_drilldown_clave(df: pd.DataFrame, config: Dict[str, Any]):
 
         claves_disponibles = sorted(df['ClaveCatalogo'].dropna().unique())
         dominio = config.get('dominio', 'default')
-        
+
         selected_clave = st.selectbox(
             "Seleccione una Clave de Rechazo",
             options=claves_disponibles,
@@ -547,51 +371,152 @@ def _render_drilldown_clave(df: pd.DataFrame, config: Dict[str, Any]):
             key=f"drilldown_clave_{dominio}"
         )
 
+        # Detectar cambio de clave y limpiar cache anterior
+        if 'last_selected_clave' not in st.session_state:
+            st.session_state.last_selected_clave = None
+
+        if st.session_state.last_selected_clave != selected_clave:
+            # Limpiar datos anteriores del drilldown
+            _clear_drilldown_cache(dominio)
+            st.session_state.last_selected_clave = selected_clave
+
         if selected_clave:
             st.subheader(f"Análisis para: {selected_clave}")
 
-            # Delegar cálculos a insights.py
-            df_drilldown_dia = compute_clave_drilldown_data(df, selected_clave, group_by="Dia")
-            df_drilldown_maq = compute_clave_drilldown_data(df, selected_clave, group_by="Maquina")
+            # Crear un identificador único para esta sesión de drilldown
+            drilldown_key = f"{dominio}_{selected_clave}_{hash(str(df.shape))}"
 
-            tab1, tab2, tab3 = st.tabs(["Evolución por Día", "Contribución por Máquina", "Detalles de Mapeo"])
+            # Sistema de cache robusto con manejo de estado y timeout
+            if drilldown_key not in st.session_state or st.session_state[drilldown_key].get('needs_refresh', True):
+
+                # Usar un placeholder para el spinner que se puede controlar
+                spinner_placeholder = st.empty()
+
+                try:
+                    with spinner_placeholder.container():
+                        with st.spinner("🔄 Procesando análisis detallado..."):
+                            # Calcular drilldown con timeout para evitar hangs
+                            start_time = time.time()
+
+                            drilldown_results = get_cached_drilldown_results(df, selected_clave)
+
+                            # Verificar timeout (30 segundos máximo)
+                            if time.time() - start_time > 30:
+                                raise TimeoutError("El procesamiento tomó demasiado tiempo")
+
+                            df_drilldown_dia = drilldown_results['dia']
+                            df_drilldown_maq = drilldown_results['maquina']
+
+                    # Limpiar el spinner
+                    spinner_placeholder.empty()
+
+                    # Almacenar resultados en session_state
+                    st.session_state[drilldown_key] = {
+                        'dia': df_drilldown_dia,
+                        'maquina': df_drilldown_maq,
+                        'needs_refresh': False,
+                        'last_update': pd.Timestamp.now(),
+                        'processing_time': time.time() - start_time
+                    }
+
+                    # Feedback de éxito
+                    data_count = len(df_drilldown_dia) + len(df_drilldown_maq)
+                    if data_count > 0:
+                        processing_time = st.session_state[drilldown_key]['processing_time']
+                        st.success(f"✅ Análisis completado: {data_count} puntos de datos procesados en {processing_time:.2f}s")
+                    else:
+                        st.warning(f"⚠️ No se encontraron datos para {selected_clave}")
+
+                except TimeoutError:
+                    st.error(f"⏰ Timeout: El procesamiento de la clave '{selected_clave}' tomó demasiado tiempo")
+                    st.info("💡 Intente seleccionar otra clave o recargue la página")
+                    spinner_placeholder.empty()
+                    return
+
+                except Exception as e:
+                    error_msg = f"❌ Error al procesar la clave {selected_clave}: {str(e)}"
+                    st.error(error_msg)
+                    print(error_msg)  # Para debugging en terminal
+
+                    st.session_state[drilldown_key] = {
+                        'dia': pd.DataFrame(),
+                        'maquina': pd.DataFrame(),
+                        'needs_refresh': False,
+                        'error': str(e)
+                    }
+                    spinner_placeholder.empty()
+                    return
+
+            # Recuperar datos del session_state
+            cached_data = st.session_state[drilldown_key]
+            df_drilldown_dia = cached_data['dia']
+            df_drilldown_maq = cached_data['maquina']
+
+            # Verificar si necesitamos refrescar (datos muy antiguos)
+            if 'last_update' in cached_data:
+                time_diff = pd.Timestamp.now() - cached_data['last_update']
+                if time_diff.total_seconds() > 300:  # 5 minutos
+                    st.session_state[drilldown_key]['needs_refresh'] = True
+                    st.rerun()
+
+            # Mostrar mensaje de error si existe
+            if 'error' in cached_data:
+                st.error(f"❌ Error anterior: {cached_data['error']}")
+                return
+
+            tab1, tab2 = st.tabs(["📅 Evolución por Día", "🏭 Contribución por Máquina"])
 
             with tab1:
-                fig_dia = build_clave_drilldown_figure(df_drilldown_dia, selected_clave, group_by="Dia")
-                st.plotly_chart(fig_dia, use_container_width=True)
-            
+                if df_drilldown_dia.empty:
+                    st.info("📅 No hay datos de evolución diaria para esta clave.")
+                else:
+                    fig_dia = build_clave_drilldown_figure(df_drilldown_dia, selected_clave, group_by="Dia")
+                    st.plotly_chart(fig_dia, use_container_width=True)
+
             with tab2:
-                fig_maq = build_clave_drilldown_figure(df_drilldown_maq, selected_clave, group_by="Maquina")
-                st.plotly_chart(fig_maq, use_container_width=True)
-
-            with tab3:
-                st.write("Muestra de mapeos asociados a esta clave:")
-                df_details = df[df['ClaveCatalogo'] == selected_clave]
-                cols_to_show = ['SourceCol', 'score', 'Mensaje', 'Pzas']
-                st.dataframe(df_details[[c for c in cols_to_show if c in df_details.columns]], use_container_width=True)
-
-
-def render_confiabilidad_gourmet(df_preparado_filtrado: pd.DataFrame, config_panel: Dict[str, Any]):
+                if df_drilldown_maq.empty:
+                    st.info("🏭 No hay datos de contribución por máquina para esta clave.")
+                else:
+                    fig_maq = build_clave_drilldown_figure(df_drilldown_maq, selected_clave, group_by="Maquina")
+                    st.plotly_chart(fig_maq, use_container_width=True)
+def render_confiabilidad_panel(df_preparado_filtrado: pd.DataFrame, config_panel: Dict[str, Any]):
     """
-    Punto de entrada para el panel de Confiabilidad "Gourmet" (ligero).
+    Punto de entrada único para renderizar el panel de confiabilidad (MVP).
 
-    Muestra únicamente:
-    - G1: KPIs de cobertura de mapeo.
-    - G2: Un análisis de estabilidad de umbral bajo demanda.
+    Muestra:
+    - KPIs principales de cobertura de mapeo.
+    - Histograma de match_scores de matching.
+    - Tabla exportable de causas no mapeadas.
     """
     if df_preparado_filtrado.empty:
         st.warning("No hay datos de mapeo para mostrar en el período seleccionado.")
         return
 
-    st.header(f"Panel de Confiabilidad (Gourmet): {config_panel.get('dominio', 'General')}")
+    st.header(f"Panel de Confiabilidad - Mapeo de Claves de Rechazo")
     st.markdown("---")
 
-    # G1. Cobertura de Mapeo
+    # KPIs principales
     _render_gourmet_cobertura(df_preparado_filtrado, config_panel)
     st.markdown("---")
 
-    # G2. Estabilidad de Umbral
-    _render_gourmet_estabilidad(config_panel)
+    # Histograma de match_scores de matching
+    if 'match_score' in df_preparado_filtrado.columns:
+        with st.expander("Histograma de Match Scores de Matching"):
+            fig = px.histogram(df_preparado_filtrado, x='match_score', nbins=20, title='Distribución de Match Scores de Matching')
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Tabla de causas no mapeadas
+    unmapped_values = {'no mapeado', 'sin clave', 'n/a'}
+    if 'ClaveCatalogo' in df_preparado_filtrado.columns and 'SourceCol' in df_preparado_filtrado.columns:
+        is_unmapped_mask = df_preparado_filtrado['ClaveCatalogo'].isnull() | df_preparado_filtrado['ClaveCatalogo'].str.strip().str.lower().isin(unmapped_values)
+        df_unmapped = df_preparado_filtrado[is_unmapped_mask]
+        if not df_unmapped.empty:
+            st.write("**Tabla de Causas No Mapeadas**")
+            st.dataframe(df_unmapped[['SourceCol', 'Pzas', 'match_score']] if 'Pzas' in df_unmapped.columns else df_unmapped[['SourceCol', 'match_score']], use_container_width=True)
+            csv = df_unmapped.to_csv(index=False).encode('utf-8')
+            st.download_button("Exportar Causas No Mapeadas (CSV)", data=csv, file_name="causas_no_mapeadas.csv", mime="text/csv")
+        else:
+            st.success("¡Felicidades! No se encontraron causas no mapeadas en el período seleccionado.")
 
 
 def render_confiabilidad_panel(df_preparado_filtrado: pd.DataFrame, config_panel: Dict[str, Any]):
@@ -604,7 +529,7 @@ def render_confiabilidad_panel(df_preparado_filtrado: pd.DataFrame, config_panel
     Args:
         df_preparado_filtrado (pd.DataFrame): 
             El DataFrame con los datos de mapeo ya procesados y filtrados.
-            Debe contener **todos** los mapeos potenciales con sus scores, no solo los
+            Debe contener **todos** los mapeos potenciales con sus match_scores, no solo los
             que superan un umbral.
             Puede contener 'Pzas' para análisis adicionales.
             Puede contener metadatos en el atributo `.attrs['rechazos_long_messages']`.
@@ -619,7 +544,7 @@ def render_confiabilidad_panel(df_preparado_filtrado: pd.DataFrame, config_panel
         st.warning("No hay datos de mapeo para mostrar en el período seleccionado.")
         return
 
-    st.header(f"Panel de Confiabilidad: {config_panel.get('dominio', 'General')}")
+    st.header(f"Panel de Confiabilidad - Mapeo de Claves de Rechazo: {config_panel.get('dominio', 'General')}")
     st.markdown("---")
 
     # Lógica para manejar el umbral temporal vs. el del dashboard
@@ -638,13 +563,25 @@ def render_confiabilidad_panel(df_preparado_filtrado: pd.DataFrame, config_panel
     _render_resumen(df_preparado_filtrado, active_threshold / 100.0, config_panel)
     st.markdown("---")
 
-    # 2. Secciones colapsables
-    _render_diagnostico_mapeo(df_preparado_filtrado, config_panel)
-    _render_comparar_umbrales(df_preparado_filtrado, config_panel)
-    _render_curva_estabilidad(df_preparado_filtrado, config_panel)
-    
+    # 2. Drilldown por Clave de Rechazo (movido arriba)
+    # Precarga inteligente de las claves más usadas para mejorar rendimiento
+    if 'ClaveCatalogo' in df_preparado_filtrado.columns:
+        with st.spinner("🔄 Preparando análisis de claves más frecuentes..."):
+            precargar_drilldown_top_claves(df_preparado_filtrado)
+        st.success("✅ Cache de claves optimizado para análisis rápido")
+
+    _render_drilldown_clave(df_preparado_filtrado, config_panel)
+    st.markdown("---")
+
+    # 3. Secciones colapsables
     # La sección de fracciones solo tiene sentido si existe la columna 'Pzas'
     if 'Pzas' in df_preparado_filtrado.columns:
         _render_fracciones_piezas(df_preparado_filtrado, config_panel)
-        
-    _render_drilldown_clave(df_preparado_filtrado, config_panel)
+    
+    # 5. Mensajes del Proceso de Mapeo (al final, no expandido por defecto)
+    rechazos = df_preparado_filtrado.attrs.get('rechazos_long_messages', [])
+    if rechazos:
+        st.markdown("---")
+        with st.expander("⚠️ Mensajes del Proceso de Mapeo", expanded=False):
+            for msg in rechazos:
+                st.warning(msg)

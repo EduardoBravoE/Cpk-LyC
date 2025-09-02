@@ -265,6 +265,64 @@ def cargar_overrides_rechazo() -> pd.DataFrame:
         st.warning(f"No se pudo cargar el archivo de overrides '{overrides_path.name}': {e}")
         return pd.DataFrame()
 
+
+def cargar_clave_patterns() -> pd.DataFrame:
+    """
+    Carga un archivo de patrones opcional para mejorar coincidencias por clave.
+    El archivo debe estar en REFERENCIAS/clave_patterns.csv
+    Columnas: Clave, Patron
+    """
+    paths = get_paths()
+    patterns_path = paths["REFS_DIR"] / "clave_patterns.csv"
+
+    if not patterns_path.exists():
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_csv(patterns_path)
+        # Validar columnas esenciales
+        required_cols = {"Clave", "Patron"}
+        if not required_cols.issubset(df.columns):
+            st.warning(f"El archivo de patrones '{patterns_path.name}' no tiene las columnas requeridas: {required_cols}.")
+            return pd.DataFrame()
+        
+        # Normalizar
+        df['Clave'] = df['Clave'].str.strip()
+        df['Patron'] = df['Patron'].str.strip()
+        return df
+    except Exception as e:
+        st.warning(f"No se pudo cargar el archivo de patrones '{patterns_path.name}': {e}")
+        return pd.DataFrame()
+
+
+def cargar_mapping_lock() -> pd.DataFrame:
+    """
+    Carga un archivo de locks opcional para bloquear mapeos específicos.
+    El archivo debe estar en REFERENCIAS/mapping_lock.csv
+    Columnas: SourceCol, ClaveCatalogo
+    """
+    paths = get_paths()
+    lock_path = paths["REFS_DIR"] / "mapping_lock.csv"
+
+    if not lock_path.exists():
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_csv(lock_path)
+        # Validar columnas esenciales
+        required_cols = {"SourceCol", "ClaveCatalogo"}
+        if not required_cols.issubset(df.columns):
+            st.warning(f"El archivo de locks '{lock_path.name}' no tiene las columnas requeridas: {required_cols}.")
+            return pd.DataFrame()
+        
+        # Normalizar
+        df['SourceCol'] = df['SourceCol'].str.strip()
+        df['ClaveCatalogo'] = df['ClaveCatalogo'].str.strip()
+        return df
+    except Exception as e:
+        st.warning(f"No se pudo cargar el archivo de locks '{lock_path.name}': {e}")
+        return pd.DataFrame()
+
 # =========================
 #  FUZZY MATCHING
 # =========================
@@ -377,6 +435,8 @@ def _classify_dynamic_column(
     dominio: str,
     catalog_df: pd.DataFrame,
     overrides_df: pd.DataFrame,
+    patterns_df: pd.DataFrame,
+    lock_df: pd.DataFrame,
     # --- Mode parameters ---
     mode: str,
     desc_threshold: float,
@@ -454,6 +514,32 @@ def _classify_dynamic_column(
                             })
                         return audit_info
 
+        # Aplicar patrones para mejorar coincidencias
+        if not patterns_df.empty:
+            for _, pattern in patterns_df.iterrows():
+                if re.search(pattern["Patron"], desc_superior, re.IGNORECASE):
+                    clave = pattern["Clave"]
+                    cat_entry = catalog_df[catalog_df["Clave"] == clave]
+                    if not cat_entry.empty:
+                        entry = cat_entry.iloc[0]
+                        audit_info["decision_final"] = "RECHAZO"
+                        audit_info["reason_code"] = "PATTERN_MATCH"
+                        audit_info["match_method"] = "pattern"
+                        audit_info.update({
+                            "ClaveCatalogo": entry["Clave"], "DescripcionCatalogo": entry["Descripcion"],
+                            "SubCategoria": entry["SubCategoria"], "OrigenCatalogo": entry["Origen"], "score_top1": 100.0
+                        })
+                        audit_info["message"] = f"Match por patrón en columna '{dyn_col_name}'."
+                        return audit_info
+
+        # Aplicar locks para bloquear mapeos
+        if not lock_df.empty:
+            lock_match = lock_df[(lock_df["SourceCol"] == dyn_col_name) & (lock_df["ClaveCatalogo"] == audit_info.get("ClaveCatalogo"))]
+            if not lock_match.empty:
+                audit_info["message"] = f"Mapeo bloqueado para columna '{dyn_col_name}'."
+                audit_info["reason_code"] = "LOCKED"
+                return audit_info
+
         # 2. Match por Clave Exacta
         cat_exact_match = catalog_df[(catalog_df["Clave"] == dyn_col_name) & ((catalog_df["Origen"] == dominio) | (catalog_df["Origen"] == "Ambas"))]
         if not cat_exact_match.empty:
@@ -507,6 +593,8 @@ def _extract_rechazos_long_from_data(
     dominio: str,
     catalog_df: pd.DataFrame,    
     overrides_df: pd.DataFrame,
+    patterns_df: pd.DataFrame,
+    lock_df: pd.DataFrame,
     mode: str,
     desc_threshold: float,
     desc_validation_mode: str,
@@ -544,7 +632,7 @@ def _extract_rechazos_long_from_data(
 
         audit_info = _classify_dynamic_column(
             dyn_col_name, desc_superior, df_data[dyn_col_name], dominio, catalog_df,
-            overrides_df, mode, desc_threshold, desc_validation_mode, valid_keys_map,
+            overrides_df, patterns_df, lock_df, mode, desc_threshold, desc_validation_mode, valid_keys_map,
             threshold_high, threshold_low, fraction_tolerance
         )
 
@@ -649,24 +737,16 @@ def cargar_lineas_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
     paths = get_paths()
     carpeta = paths["LINEAS_DIR"]
 
-    # --- INICIO DEBUG ---
-    # Estos mensajes aparecerán en los logs de Streamlit Cloud
-    print("--- DEBUG: Iniciando carga para LINEAS ---")
-    print(f"Ruta base del proyecto (ROOT): {paths['ROOT']}")
-    print(f"Intentando acceder a la carpeta: {carpeta}")
+    # Verificar que la carpeta existe (sin debug verbose)
     if not carpeta.exists():
-        print(f"ERROR DE RUTA: La ruta NO EXISTE: {carpeta}")
-    elif not carpeta.is_dir():
-        print(f"ERROR DE RUTA: La ruta EXISTE pero NO ES UNA CARPETA: {carpeta}")
-    else:
-        print(f"ÉXITO DE RUTA: La ruta es una carpeta válida: {carpeta}")
-    # --- FIN DEBUG ---
+        raise FileNotFoundError(f"❌ Carpeta de datos no encontrada: {carpeta}")
+    if not carpeta.is_dir():
+        raise NotADirectoryError(f"❌ La ruta no es una carpeta: {carpeta}")
 
     fuentes = listar_fuentes(carpeta, mode="dir", recursive=recursive)
 
     frames: list[pd.DataFrame] = []
     manifest: list[dict] = []
-    print(f"DEBUG: listar_fuentes encontró {len(fuentes)} archivo(s): {[f.name for f in fuentes]}")
     for ruta in fuentes:
         info = _manifest_row(ruta)
         sheets_ok: list[str] = []
@@ -712,28 +792,20 @@ def cargar_coples_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
     paths = get_paths()
     carpeta = paths["COPLES_DIR"]
 
-    # --- INICIO DEBUG ---
-    # Estos mensajes aparecerán en los logs de Streamlit Cloud
-    print("--- DEBUG: Iniciando carga para COPLES ---")
-    print(f"Ruta base del proyecto (ROOT): {paths['ROOT']}")
-    print(f"Intentando acceder a la carpeta: {carpeta}")
+    # Verificar que la carpeta existe (sin debug verbose)
     if not carpeta.exists():
-        print(f"ERROR DE RUTA: La ruta NO EXISTE: {carpeta}")
-    elif not carpeta.is_dir():
-        print(f"ERROR DE RUTA: La ruta EXISTE pero NO ES UNA CARPETA: {carpeta}")
-    else:
-        print(f"ÉXITO DE RUTA: La ruta es una carpeta válida: {carpeta}")
-    # --- FIN DEBUG ---
+        raise FileNotFoundError(f"❌ Carpeta de datos no encontrada: {carpeta}")
+    if not carpeta.is_dir():
+        raise NotADirectoryError(f"❌ La ruta no es una carpeta: {carpeta}")
 
     # 1. Descubrimiento de fuentes específico para Coples
     fuentes = listar_fuentes(carpeta, mode="dir", recursive=recursive, patterns=("BDD_COP_*.xlsx",))
 
     frames: list[pd.DataFrame] = []
     manifest: list[dict] = []
-    print(f"DEBUG: listar_fuentes encontró {len(fuentes)} archivo(s): {[f.name for f in fuentes]}")
     for ruta in fuentes:
         info = _manifest_row(ruta)
-        
+
         try:
             # 2. Lectura por archivo (single-sheet)
             try:
@@ -747,8 +819,20 @@ def cargar_coples_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
                 info["motivo_falla"] = f"No se pudo abrir: {e}"
                 manifest.append(info)
                 continue
-            
+            # Preferir hoja llamada 'COPLES' (case-insensitive) si existe; sino usar la primera hoja
             hoja_a_leer = hojas[0]
+            try:
+                # Buscar hoja con nombre exacto 'COPLES' (ignorando mayúsculas/minúsculas)
+                match = next((h for h in hojas if str(h).strip().lower() == 'coples'), None)
+                if match:
+                    hoja_a_leer = match
+                else:
+                    # Fallback: buscar cualquier hoja que contenga 'coples' en su nombre
+                    match_contains = next((h for h in hojas if 'coples' in str(h).strip().lower()), None)
+                    if match_contains:
+                        hoja_a_leer = match_contains
+            except Exception:
+                hoja_a_leer = hojas[0]
             
             # 3. Header y lectura de datos
             df = _leer_hoja_excel(ruta, hoja_a_leer)
@@ -793,8 +877,197 @@ def cargar_coples_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
 
 
 # =========================
-#  FUNCIÓN DE CARGA UNIFICADA
+#  SISTEMA DE PRECARGA OPTIMIZADO
 # =========================
+
+@st.cache_data(show_spinner="Precargando datos de producción...")
+def precargar_datos_produccion() -> dict[str, tuple[pd.DataFrame, pd.DataFrame]]:
+    """
+    Precarga los datos de producción de ambos dominios (Líneas y Coples)
+    para mejorar la experiencia de alternancia entre dashboards.
+
+    Returns:
+        Dict con claves 'lineas' y 'coples', cada una conteniendo
+        (df_unificado, manifest_df)
+    """
+    print("🔄 Iniciando precarga de datos de producción...")
+
+    datos = {}
+
+    # Precargar datos de Líneas
+    try:
+        print("📊 Cargando datos de LÍNEAS...")
+        datos['lineas'] = cargar_lineas_con_manifiesto(recursive=False)
+        print(f"✅ Datos de LÍNEAS cargados: {len(datos['lineas'][0]):,} filas")
+    except Exception as e:
+        print(f"❌ Error cargando datos de LÍNEAS: {e}")
+        datos['lineas'] = (pd.DataFrame(), pd.DataFrame())
+
+    # Precargar datos de Coples
+    try:
+        print("📊 Cargando datos de COPLES...")
+        datos['coples'] = cargar_coples_con_manifiesto(recursive=False)
+        print(f"✅ Datos de COPLES cargados: {len(datos['coples'][0]):,} filas")
+    except Exception as e:
+        print(f"❌ Error cargando datos de COPLES: {e}")
+        datos['coples'] = (pd.DataFrame(), pd.DataFrame())
+
+    print("🎉 Precarga completada!")
+    return datos
+
+
+@st.cache_data(show_spinner="Precargando datos de rechazos...")
+def precargar_datos_rechazos() -> dict[str, pd.DataFrame]:
+    """
+    Precarga los datos de rechazos de ambos dominios con parámetros por defecto
+    para mejorar la experiencia de carga.
+
+    Returns:
+        Dict con claves 'lineas' y 'coples', cada una conteniendo
+        el DataFrame de rechazos en formato long
+    """
+    print("🔄 Iniciando precarga de datos de rechazos...")
+
+    datos_rechazos = {}
+
+    # Parámetros por defecto para la precarga
+    DEFAULT_THRESHOLD_HIGH = 92.0
+    DEFAULT_THRESHOLD_LOW = 82.0
+
+    # Precargar datos de rechazos de Líneas
+    try:
+        print("📊 Cargando rechazos de LÍNEAS...")
+        datos_rechazos['lineas'] = cargar_rechazos_long_area(
+            dominio=DOM_LINEAS,
+            threshold_high=DEFAULT_THRESHOLD_HIGH,
+            threshold_low=DEFAULT_THRESHOLD_LOW
+        )
+        print(f"✅ Rechazos de LÍNEAS cargados: {len(datos_rechazos['lineas']):,} filas")
+    except Exception as e:
+        print(f"❌ Error cargando rechazos de LÍNEAS: {e}")
+        datos_rechazos['lineas'] = pd.DataFrame()
+
+    # Precargar datos de rechazos de Coples
+    try:
+        print("📊 Cargando rechazos de COPLES...")
+        datos_rechazos['coples'] = cargar_rechazos_long_area(
+            dominio=DOM_COPLES,
+            threshold_high=DEFAULT_THRESHOLD_HIGH,
+            threshold_low=DEFAULT_THRESHOLD_LOW
+        )
+        print(f"✅ Rechazos de COPLES cargados: {len(datos_rechazos['coples']):,} filas")
+    except Exception as e:
+        print(f"❌ Error cargando rechazos de COPLES: {e}")
+        datos_rechazos['coples'] = pd.DataFrame()
+
+    print("🎉 Precarga de rechazos completada!")
+    return datos_rechazos
+
+
+def cargar_rechazos_con_cache_inteligente(
+    dominio: str,
+    threshold_high: float,
+    threshold_low: float,
+    datos_rechazos_cache: dict[str, pd.DataFrame] = None
+) -> pd.DataFrame:
+    """
+    Carga datos de rechazos usando cache inteligente.
+
+    Si los umbrales coinciden con los valores por defecto, usa datos cacheados.
+    Si no, recarga con los nuevos umbrales.
+
+    Args:
+        dominio: 'lineas' o 'coples'
+        threshold_high: Umbral superior solicitado
+        threshold_low: Umbral inferior solicitado
+        datos_rechazos_cache: Datos precargados (opcional)
+
+    Returns:
+        DataFrame con datos de rechazos
+    """
+    DEFAULT_THRESHOLD_HIGH = 92.0
+    DEFAULT_THRESHOLD_LOW = 82.0
+
+    # Si los umbrales coinciden con los valores por defecto, usar cache
+    if (abs(threshold_high - DEFAULT_THRESHOLD_HIGH) < 0.01 and
+        abs(threshold_low - DEFAULT_THRESHOLD_LOW) < 0.01 and
+        datos_rechazos_cache and dominio in datos_rechazos_cache):
+
+        df_cached = datos_rechazos_cache[dominio]
+        if not df_cached.empty:
+            print(f"✅ Usando datos de rechazos cacheados para {dominio.upper()}")
+            return df_cached
+
+    # Si no coinciden los umbrales o no hay cache, cargar normalmente
+    print(f"🔄 Cargando rechazos para {dominio.upper()} con umbrales personalizados...")
+    return cargar_rechazos_long_area(
+        dominio=dominio,
+        threshold_high=threshold_high,
+        threshold_low=threshold_low
+    )
+
+
+def obtener_datos_cacheados(dominio: str, datos_cache: dict[str, tuple[pd.DataFrame, pd.DataFrame]]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Obtiene los datos cacheados para un dominio específico.
+
+    Args:
+        dominio: 'lineas' o 'coples'
+        datos_cache: Dict retornado por precargar_datos_produccion()
+
+    Returns:
+        Tupla (df_unificado, manifest_df) para el dominio solicitado
+    """
+    if dominio not in datos_cache:
+        print(f"⚠️ Dominio '{dominio}' no encontrado en caché, cargando datos...")
+        if dominio == 'lineas':
+            return cargar_lineas_con_manifiesto(recursive=False)
+        elif dominio == 'coples':
+            return cargar_coples_con_manifiesto(recursive=False)
+        else:
+            return pd.DataFrame(), pd.DataFrame()
+
+    return datos_cache[dominio]
+
+
+# =========================
+#  UTILIDADES DE CARGA CON MEJOR UX
+# =========================
+
+def cargar_datos_con_feedback(dominio: str, datos_cache: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Carga datos con mejor feedback visual para el usuario.
+
+    Args:
+        dominio: 'lineas' o 'coples'
+        datos_cache: Datos precargados (opcional)
+
+    Returns:
+        Tupla (df_unificado, manifest_df)
+    """
+    if datos_cache and dominio in datos_cache:
+        # Datos ya están en caché
+        df_raw, manifest_df = datos_cache[dominio]
+        if not df_raw.empty:
+            st.success(f"✅ Datos de {dominio.upper()} cargados desde caché ({len(df_raw):,} filas)")
+        return df_raw, manifest_df
+
+    # Cargar datos con spinner personalizado
+    with st.spinner(f"🔄 Cargando datos de {dominio.upper()}..."):
+        if dominio == 'lineas':
+            df_raw, manifest_df = cargar_lineas_con_manifiesto(recursive=False)
+        elif dominio == 'coples':
+            df_raw, manifest_df = cargar_coples_con_manifiesto(recursive=False)
+        else:
+            df_raw, manifest_df = pd.DataFrame(), pd.DataFrame()
+
+    if not df_raw.empty:
+        st.success(f"✅ Datos de {dominio.upper()} cargados ({len(df_raw):,} filas)")
+    else:
+        st.warning(f"⚠️ No se encontraron datos de {dominio.upper()}")
+
+    return df_raw, manifest_df
+
 
 def _resolve_domain(area_input: Any) -> str:
     """Helper interno para determinar el dominio a partir de varios tipos de entrada."""
@@ -893,6 +1166,8 @@ def cargar_rechazos_long_area(
     paths = get_paths()
     catalog_df = cargar_catalogo_rechazo()
     overrides_df = cargar_overrides_rechazo()
+    patterns_df = cargar_clave_patterns()
+    lock_df = cargar_mapping_lock()
     
     # --- Pre-build map for strict mode ---
     valid_keys_map = {}
@@ -948,6 +1223,8 @@ def cargar_rechazos_long_area(
                 dominio=dominio,
                 catalog_df=catalog_df,
                 overrides_df=overrides_df,
+                patterns_df=patterns_df,
+                lock_df=lock_df,
                 mode=mode,
                 desc_threshold=desc_threshold,
                 desc_validation_mode=desc_validation_mode,
@@ -1019,6 +1296,8 @@ def get_mapping_audit(
     paths = get_paths()
     catalog_df = cargar_catalogo_rechazo()
     overrides_df = cargar_overrides_rechazo()
+    patterns_df = cargar_clave_patterns()
+    lock_df = cargar_mapping_lock()
 
     # --- Pre-build map for strict mode ---
     valid_keys_map = {}
@@ -1060,7 +1339,7 @@ def get_mapping_audit(
                 desc_superior = df_raw.iat[0, raw_col_idx]
                 audit_result = _classify_dynamic_column(
                     dyn_col_name, desc_superior, df_data[dyn_col_name], dominio, catalog_df,
-                    overrides_df, mode, desc_threshold, desc_validation_mode, valid_keys_map,
+                    overrides_df, patterns_df, lock_df, mode, desc_threshold, desc_validation_mode, valid_keys_map,
                     threshold_high, threshold_low, 1e-6
                 )
                 audit_result.update({"Archivo": path.name, "Hoja": sheet})

@@ -1,0 +1,3 @@
+Clave,Patron
+# Ejemplo: Para clave 'A01', si la descripción contiene 'diámetro' y 'rosca', asignar
+A01,diámetro.*rosca

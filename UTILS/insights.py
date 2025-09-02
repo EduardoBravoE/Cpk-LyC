@@ -5,11 +5,16 @@ from __future__ import annotations
 import re
 import numpy as np
 import pandas as pd
+import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 from typing import Any, Dict, List, Literal, Optional, Set, Union
 from io import BytesIO
 from datetime import date
+
+# Suprimir warnings de Streamlit cuando se importa fuera del contexto de la app
+import warnings
+warnings.filterwarnings("ignore", message="No runtime found, using MemoryCacheStorageManager")
 
 # Reutilizar utilidades de common.py
 from UTILS.common import (
@@ -153,7 +158,7 @@ def _coerce_fecha_series(s: pd.Series) -> pd.Series:
         s_work.loc[is_str_like] = parsed_strict
 
     # 3. Forzar el tipo final a datetime64[ns]
-    return pd.to_datetime(s_work, errors='coerce')
+    return pd.to_datetime(s_work, dayfirst=True, errors='coerce')
 
 def _normalize_colname(raw: str) -> str:
     """Normaliza un nombre de columna para comparación: sin tildes, minúsculas, sin espacios/guiones."""
@@ -413,7 +418,7 @@ def apply_filters_long(
 
     if fechas:
         start_date, end_date = fechas
-        s_fecha = pd.to_datetime(filtered_df["Fecha"], errors="coerce")
+        s_fecha = pd.to_datetime(filtered_df["Fecha"], format="%d/%m/%Y", errors="coerce")
         filtered_df = filtered_df[s_fecha.dt.date.between(start_date, end_date, inclusive="both")]
     if maquinas:
         filtered_df = filtered_df[filtered_df["Maquina"].isin([normalize_text(m) for m in maquinas])]
@@ -515,11 +520,36 @@ def compute_top_claves_rechazo(
     return df_top, meta
 
 
+def ensure_catalog_description(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    """
+    Asegura que el DataFrame tenga las columnas necesarias para el catálogo de descripciones.
+    Retorna el DataFrame estandarizado y el nombre de la columna de descripción a usar.
+    """
+    df_copy = df.copy()
+
+    # Determinar qué columna usar para descripciones
+    desc_candidates = ['DescripcionCatalogo', 'desc_row0', 'descripcion', 'descripcion_catalogo']
+    desc_col = None
+
+    for candidate in desc_candidates:
+        if candidate in df_copy.columns:
+            desc_col = candidate
+            break
+
+    # Si no se encontró ninguna columna de descripción, crear una vacía
+    if desc_col is None:
+        df_copy['descripcion_temp'] = ''
+        desc_col = 'descripcion_temp'
+
+    return df_copy, desc_col
+
+
 def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.Figure:
     """
     Construye una figura Plotly para el top de claves de rechazo usando plotly.express.
     Es tolerante a la ausencia de la columna de desglose para colorear y de descripción.
     """
+    # Debug printing removed; use dashboard-level _show_debug when needed
     if df_top.empty:
         fig = go.Figure()
         fig.update_layout(title="Top Claves de Rechazo", annotations=[dict(text="No hay datos para mostrar", xref="paper", yref="paper", showarrow=False, font=dict(size=20))])
@@ -527,6 +557,8 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
 
     # 1. Estandarización previa del DataFrame
     df_top_std, desc_col = ensure_catalog_description(df_top)
+    # internal debug removed
+
     if 'ClaveCatalogo' not in df_top_std.columns:
         df_top_std['ClaveCatalogo'] = 'N/A'
     if 'Pzas' not in df_top_std.columns:
@@ -537,6 +569,8 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
     df_top_std['EtiquetaClave'] = df_top_std['ClaveCatalogo'].astype(str)
     non_empty_desc_mask = (df_top_std[desc_col].notna()) & (df_top_std[desc_col].astype(str).str.strip().ne('')) & (df_top_std[desc_col].astype(str).str.strip().ne('—'))
     df_top_std.loc[non_empty_desc_mask, 'EtiquetaClave'] = df_top_std['ClaveCatalogo'].astype(str) + " - " + df_top_std[desc_col].astype(str)
+
+    # internal debug removed
 
     # 2. Determinar la columna de color y degradar si es necesario
     color_col = None
@@ -559,10 +593,14 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
         if "SubCategoria" in df_top_std.columns:
             color_col = "SubCategoria"
 
+    # internal debug removed
+
     # Ordenar el DataFrame para que la barra más grande quede arriba
     df_top_std = df_top_std.sort_values("Pzas", ascending=True)
+    # internal debug removed
 
     # 3. Usar plotly.express.bar
+    # internal debug removed
     fig = px.bar(
         df_top_std,
         x="Pzas",
@@ -579,6 +617,8 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
         }
     )
 
+    # internal debug removed
+
     # 4. Ajustes finales de layout y formato
     fig.update_layout(
         xaxis_title="Total Piezas Rechazadas",
@@ -593,6 +633,7 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
         textposition='outside'
     )
 
+    # internal debug removed
     return fig
 
 
@@ -873,182 +914,7 @@ def build_rechazos_debug_payload(
 #  ANÁLISIS DE SENSIBILIDAD DE UMBRALES
 # =============================================================================
 
-def _get_top_n_keys(df_rech_long: pd.DataFrame, top_n: int) -> list[str]:
-    """Helper to get the top N rejection keys by Pzas."""
-    if df_rech_long.empty or 'ClaveCatalogo' not in df_rech_long.columns:
-        return []
-    
-    top_keys_df = (
-        df_rech_long.groupby("ClaveCatalogo")
-        .agg(Pzas=("Pzas", "sum"))
-        .sort_values("Pzas", ascending=False)
-        .head(top_n)
-    )
-    return top_keys_df.index.tolist()
-
-
-def build_threshold_comparison(
-    df_audit_t1: pd.DataFrame,
-    df_audit_t2: pd.DataFrame,
-    rech_long_t1: pd.DataFrame,
-    rech_long_t2: pd.DataFrame,
-    top_n: int
-) -> dict:
-    """
-    Compara los resultados de mapeo y el Top-N de rechazos entre dos umbrales.
-
-    Args:
-        df_audit_t1: DataFrame de auditoría para el umbral 1.
-        df_audit_t2: DataFrame de auditoría para el umbral 2.
-        rech_long_t1: DataFrame de rechazos long para el umbral 1.
-        rech_long_t2: DataFrame de rechazos long para el umbral 2.
-        top_n: Número de claves de rechazo a comparar.
-
-    Returns:
-        Un diccionario con la comparación, listo para la UI.
-    """
-    payload = {
-        "summary_t1": {}, "summary_t2": {}, "top_n_t1": [], "top_n_t2": [],
-        "jaccard_top_n": 0.0, "keys_in": [], "keys_out": []
-    }
-
-    # 1. Resumen de auditoría
-    if not df_audit_t1.empty and 'reason_code' in df_audit_t1.columns:
-        payload["summary_t1"] = df_audit_t1['reason_code'].value_counts().to_dict()
-    if not df_audit_t2.empty and 'reason_code' in df_audit_t2.columns:
-        payload["summary_t2"] = df_audit_t2['reason_code'].value_counts().to_dict()
-
-    # 2. Comparación de Top-N
-    top_n_t1 = _get_top_n_keys(rech_long_t1, top_n)
-    top_n_t2 = _get_top_n_keys(rech_long_t2, top_n)
-    payload["top_n_t1"] = top_n_t1
-    payload["top_n_t2"] = top_n_t2
-
-    set_t1 = set(top_n_t1)
-    set_t2 = set(top_n_t2)
-
-    intersection = len(set_t1.intersection(set_t2))
-    union = len(set_t1.union(set_t2))
-    payload["jaccard_top_n"] = intersection / union if union > 0 else 0.0
-    
-    payload["keys_in"] = sorted(list(set_t2 - set_t1))
-    payload["keys_out"] = sorted(list(set_t1 - set_t2))
-
-    return payload
-
-
-def scan_thresholds_for_stability(
-    dominio: str,
-    thresholds: list[float],
-    top_n: int
-) -> pd.DataFrame:
-    """
-    Escanea un rango de umbrales para analizar la estabilidad del mapeo.
-
-    Args:
-        dominio: Dominio a analizar ('LINEAS' o 'COPLES').
-        thresholds: Lista de umbrales altos a probar.
-        top_n: Número de claves de rechazo para el análisis de estabilidad.
-
-    Returns:
-        Un DataFrame con métricas de estabilidad para cada umbral.
-    """
-    scan_results = []
-    cached_data = {}
-
-    # Pre-calcular todos los datos necesarios para evitar llamadas redundantes
-    thresholds_to_scan = sorted(list(set(thresholds + [t + 2 for t in thresholds])))
-    for t_high in thresholds_to_scan:
-        if t_high not in cached_data:
-            t_low = max(70.0, t_high - 10.0)
-            audit_df = get_mapping_audit(dominio=dominio, threshold_high=t_high, threshold_low=t_low)
-            rech_long_df = cargar_rechazos_long_area(dominio=dominio, threshold_high=t_high, threshold_low=t_low)
-            cached_data[t_high] = {
-                "audit": audit_df,
-                "top_n_keys": _get_top_n_keys(rech_long_df, top_n)
-            }
-
-    for t_high in thresholds:
-        data_t = cached_data.get(t_high)
-        data_t_plus_2 = cached_data.get(t_high + 2)
-
-        if not data_t: continue
-
-        # Calcular Jaccard
-        jaccard = 0.0
-        if data_t_plus_2:
-            set_t = set(data_t["top_n_keys"])
-            set_t_plus_2 = set(data_t_plus_2["top_n_keys"])
-            intersection = len(set_t.intersection(set_t_plus_2))
-            union = len(set_t.union(set_t_plus_2))
-            jaccard = intersection / union if union > 0 else 1.0 if not union else 0.0
-
-        # Calcular porcentajes de clasificación
-        audit_df = data_t["audit"]
-        total_cols = len(audit_df)
-        pct_fuertes = 0.0
-        pct_grises = 0.0
-        if total_cols > 0 and 'reason_code' in audit_df.columns:
-            strong_reasons = {"MATCH_CLAVE_EXACTA", "OVERRIDE_RECHAZO", "MATCH_FUZZY_ALTO"}
-            pct_fuertes = audit_df['reason_code'].isin(strong_reasons).sum() / total_cols
-            pct_grises = audit_df['reason_code'].str.startswith("ZG", na=False).sum() / total_cols
-
-        scan_results.append({
-            "T": t_high,
-            "Jaccard_T_Tplus2": jaccard,
-            "pct_fuertes": pct_fuertes,
-            "pct_grises": pct_grises
-        })
-
-    return pd.DataFrame(scan_results)
-
-
-def suggest_threshold_high(df_scan: pd.DataFrame) -> float:
-    """
-    Sugiere un umbral alto óptimo basado en un escaneo de estabilidad.
-    
-    Args:
-        df_scan (pd.DataFrame): DataFrame resultante de `scan_thresholds_for_stability`.
-
-    Returns:
-        float: El umbral alto recomendado.
-
-    Justificación de la Heurística:
-    El umbral ideal es aquel que maximiza la consistencia de los resultados (alta estabilidad)
-    y minimiza la ambigüedad en las decisiones de mapeo (baja zona gris).
-    1.  **Criterio Principal**: Se busca el umbral más bajo que inicia una "meseta de estabilidad",
-        definida como una ventana de 3 puntos consecutivos donde la similitud Jaccard se
-        mantiene >= 90% y el porcentaje de casos en la zona gris es <= 15%.
-    2.  **Fallback**: Si no se encuentra una meseta ideal, se selecciona el umbral que ofrece
-        el mejor "compromiso", calculado como `Jaccard - pct_grises`. Esto penaliza
-        la ambigüedad mientras premia la estabilidad.
-    3.  **Default**: Si no hay datos, se retorna un valor por defecto seguro (92.0).
-    """
-    if df_scan.empty:
-        return 92.0  # Default si no hay datos
-
-    df = df_scan.copy()
-    
-    df['is_stable_jaccard'] = df['Jaccard_T_Tplus2'] >= 0.90
-    df['is_low_gray'] = df['pct_grises'] <= 0.15
-
-    window_size = 3
-    df['is_sustained_stability'] = (
-        df['is_stable_jaccard'].rolling(window=window_size, min_periods=1).min().astype(bool) &
-        df['is_low_gray']
-    )
-
-    candidates = df[df['is_sustained_stability']]
-    if not candidates.empty:
-        return candidates['T'].iloc[0]
-
-    # Fallback: si no hay un punto ideal, buscar el mejor compromiso
-    df['score'] = df['Jaccard_T_Tplus2'] - df['pct_grises']
-    best_fallback_T = df.loc[df['score'].idxmax()]['T']
-    
-    return best_fallback_T if pd.notna(best_fallback_T) else 92.0
-
-
+@st.cache_data
 def compute_clave_drilldown_data(
     df_rech_long: pd.DataFrame,
     clave: str,
@@ -1068,42 +934,125 @@ def compute_clave_drilldown_data(
     Returns:
         pd.DataFrame: Un DataFrame con los datos agregados, listo para graficar.
     """
+    try:
+        if df_rech_long.empty or 'ClaveCatalogo' not in df_rech_long.columns:
+            return pd.DataFrame()
+
+        df_norm = _normalize_rechazos_long_schema(df_rech_long)
+        df_clave = df_norm[df_norm['ClaveCatalogo'] == clave].copy()
+
+        if df_clave.empty:
+            return pd.DataFrame()
+
+        if group_by == "Dia":
+            if 'Fecha' not in df_clave.columns:
+                return pd.DataFrame()
+
+            df_clave['Fecha'] = pd.to_datetime(df_clave['Fecha'], format="%d/%m/%Y", errors='coerce')
+            df_clave = df_clave.dropna(subset=['Fecha'])
+
+            if df_clave.empty:
+                return pd.DataFrame()
+
+            drilldown_df = (
+                df_clave.groupby(pd.Grouper(key='Fecha', freq='D'))
+                .agg(Pzas=("Pzas", "sum"))
+                .reset_index()
+            )
+            return drilldown_df.sort_values("Fecha")
+
+        elif group_by == "Maquina":
+            if 'Maquina' not in df_clave.columns:
+                return pd.DataFrame()
+
+            drilldown_df = (
+                df_clave.groupby("Maquina")
+                .agg(Pzas=("Pzas", "sum"))
+                .reset_index()
+            )
+            return drilldown_df.sort_values("Pzas", ascending=False)
+
+        return pd.DataFrame()
+
+    except Exception as e:
+        print(f"Error en compute_clave_drilldown_data para clave '{clave}', group_by '{group_by}': {str(e)}")
+        return pd.DataFrame()
+
+
+# =============================================================================
+#  SISTEMA DE CACHE OPTIMIZADO PARA DRILLDOWN
+# =============================================================================
+
+@st.cache_data
+def get_cached_drilldown_results(df_rech_long: pd.DataFrame, clave: str) -> dict[str, pd.DataFrame]:
+    """
+    Cache optimizado que calcula ambos drilldowns (día y máquina) en una sola operación
+    para evitar recálculos innecesarios.
+
+    Args:
+        df_rech_long: DataFrame de rechazos en formato largo
+        clave: Clave de rechazo a analizar
+
+    Returns:
+        Dict con claves 'dia' y 'maquina' conteniendo los DataFrames respectivos
+    """
+    try:
+        results = {}
+
+        # Calcular drilldown por día
+        results['dia'] = compute_clave_drilldown_data(df_rech_long, clave, group_by="Dia")
+
+        # Calcular drilldown por máquina
+        results['maquina'] = compute_clave_drilldown_data(df_rech_long, clave, group_by="Maquina")
+
+        return results
+
+    except Exception as e:
+        # En caso de error, devolver DataFrames vacíos
+        print(f"Error en get_cached_drilldown_results para clave '{clave}': {str(e)}")
+        return {
+            'dia': pd.DataFrame(),
+            'maquina': pd.DataFrame()
+        }
+
+
+@st.cache_data
+def precargar_drilldown_top_claves(df_rech_long: pd.DataFrame, top_n: int = 10) -> dict[str, dict[str, pd.DataFrame]]:
+    """
+    Precarga los resultados de drilldown para las N claves más frecuentes
+    para una experiencia ultra-rápida en las claves más utilizadas.
+
+    Args:
+        df_rech_long: DataFrame de rechazos en formato largo
+        top_n: Número de claves top a precargar
+
+    Returns:
+        Dict con clave->resultados de drilldown para las top N claves
+    """
     if df_rech_long.empty or 'ClaveCatalogo' not in df_rech_long.columns:
-        return pd.DataFrame()
+        return {}
 
-    df_norm = _normalize_rechazos_long_schema(df_rech_long)
-    df_clave = df_norm[df_norm['ClaveCatalogo'] == clave].copy()
+    # Obtener las claves más frecuentes
+    top_claves = (
+        df_rech_long['ClaveCatalogo']
+        .value_counts()
+        .head(top_n)
+        .index.tolist()
+    )
 
-    if df_clave.empty:
-        return pd.DataFrame()
+    cached_results = {}
+    for clave in top_claves:
+        try:
+            cached_results[clave] = get_cached_drilldown_results(df_rech_long, clave)
+        except Exception as e:
+            print(f"⚠️ Error precargando drilldown para clave {clave}: {e}")
+            continue
 
-    if group_by == "Dia":
-        if 'Fecha' not in df_clave.columns:
-            return pd.DataFrame()
-        df_clave['Fecha'] = pd.to_datetime(df_clave['Fecha'], errors='coerce')
-        df_clave = df_clave.dropna(subset=['Fecha'])
-        
-        drilldown_df = (
-            df_clave.groupby(pd.Grouper(key='Fecha', freq='D'))
-            .agg(Pzas=("Pzas", "sum"))
-            .reset_index()
-        )
-        return drilldown_df.sort_values("Fecha")
-
-    elif group_by == "Maquina":
-        if 'Maquina' not in df_clave.columns:
-            return pd.DataFrame()
-            
-        drilldown_df = (
-            df_clave.groupby("Maquina")
-            .agg(Pzas=("Pzas", "sum"))
-            .reset_index()
-        )
-        return drilldown_df.sort_values("Pzas", ascending=False)
-    
-    return pd.DataFrame()
+    print(f"✅ Precargados drilldowns para {len(cached_results)} claves top")
+    return cached_results
 
 
+@st.cache_data
 def build_clave_drilldown_figure(
     df_drilldown: pd.DataFrame,
     clave: str,
@@ -1274,9 +1223,6 @@ __all__ = [
     "build_top_claves_rechazo_figure",
     "diagnose_columns",
     "build_rechazos_debug_payload",
-    "build_threshold_comparison",
-    "scan_thresholds_for_stability",
-    "suggest_threshold_high",
     "compute_clave_drilldown_data",
     "build_clave_drilldown_figure",
     "compute_ti_unmapped_dynamics",
