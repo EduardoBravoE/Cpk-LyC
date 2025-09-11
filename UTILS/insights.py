@@ -14,7 +14,10 @@ from datetime import date
 
 # Suprimir warnings de Streamlit cuando se importa fuera del contexto de la app
 import warnings
-warnings.filterwarnings("ignore", message="No runtime found, using MemoryCacheStorageManager")
+
+warnings.filterwarnings(
+    "ignore", message="No runtime found, using MemoryCacheStorageManager"
+)
 
 # Reutilizar utilidades de common.py
 from UTILS.common import (
@@ -22,24 +25,29 @@ from UTILS.common import (
     parse_fecha_str,
     AREA_CODE_TO_LABEL,
     DOMAIN_BY_AREA_CODE,
-    DOM_LINEAS, DOM_COPLES, # Para filtros
+    DOM_LINEAS,
+    DOM_COPLES,  # Para filtros
     get_mapping_audit,
     cargar_rechazos_long_area,
 )
 
+
 def compute_basic_kpis(df, pieza_col="Piezas", clave_col="Clave"):
     if df is None or df.empty:
         return {"produccion_total": 0, "rechazos_total": 0, "tasa_rechazo": 0.0}
-    prod = df.get(pieza_col, pd.Series([0]*len(df))).fillna(0).sum()
+    prod = df.get(pieza_col, pd.Series([0] * len(df))).fillna(0).sum()
     # Rechazos: asume filas donde 'EsRechazoValido' True o por lógica de negocio
     rech = df.get("EsRechazoValido", pd.Series(False)).astype(bool)
-    piezas_rech = df.loc[rech, pieza_col].fillna(0).sum() if pieza_col in df.columns else 0
+    piezas_rech = (
+        df.loc[rech, pieza_col].fillna(0).sum() if pieza_col in df.columns else 0
+    )
     tasa = (piezas_rech / prod) if prod > 0 else 0.0
     return {
         "produccion_total": int(prod),
         "rechazos_total": int(piezas_rech),
         "tasa_rechazo": float(round(tasa, 4)),
     }
+
 
 def compute_cpk_grouped(df, group_cols, mean_col, lsl_col, usl_col):
     """
@@ -63,20 +71,31 @@ def compute_cpk_grouped(df, group_cols, mean_col, lsl_col, usl_col):
     out = df.groupby(group_cols).apply(_cpk).reset_index()
     return out
 
-def generate_insights_text(kpis, top_prod_df=None, worst_cpk_df=None, threshold_cpk=1.33):
+
+def generate_insights_text(
+    kpis, top_prod_df=None, worst_cpk_df=None, threshold_cpk=1.33
+):
     prod = kpis["produccion_total"]
     tasa = kpis["tasa_rechazo"] * 100
     txt = []
-    txt.append(f"📌 Producción total: **{prod:,}** piezas · Tasa de rechazo: **{tasa:.2f}%**.")
+    txt.append(
+        f"📌 Producción total: **{prod:,}** piezas · Tasa de rechazo: **{tasa:.2f}%**."
+    )
     if worst_cpk_df is not None and not worst_cpk_df.empty:
         bad = worst_cpk_df[worst_cpk_df["Cpk"] < threshold_cpk]
         if not bad.empty:
             n = len(bad)
-            txt.append(f"⚠️ Se detectaron **{n}** combinaciones con **Cpk < {threshold_cpk}**. Prioriza estas para acciones correctivas.")
+            txt.append(
+                f"⚠️ Se detectaron **{n}** combinaciones con **Cpk < {threshold_cpk}**. Prioriza estas para acciones correctivas."
+            )
     if top_prod_df is not None and not top_prod_df.empty:
         top = top_prod_df.iloc[0]
-        txt.append(f"🏭 El producto más crítico por volumen es **{top.get('Producto','(N/A)')}** con **{int(top.get('Piezas',0)):,}** piezas.")
-    txt.append("💡 Recomendación: revisa causas raíz de rechazos dominantes y verifica calibraciones de las máquinas con Cpk bajo.")
+        txt.append(
+            f"🏭 El producto más crítico por volumen es **{top.get('Producto','(N/A)')}** con **{int(top.get('Piezas',0)):,}** piezas."
+        )
+    txt.append(
+        "💡 Recomendación: revisa causas raíz de rechazos dominantes y verifica calibraciones de las máquinas con Cpk bajo."
+    )
     return "\n\n".join(txt)
 
 
@@ -86,9 +105,18 @@ def generate_insights_text(kpis, top_prod_df=None, worst_cpk_df=None, threshold_
 
 # Constante a nivel de módulo para columnas esenciales
 _ESSENTIAL_COLS = [
-    "Fecha", "Turno", "Maquina", "Diametro", "Libraje", "Acero", "Rosca",
-    "TotalPiezas", "PzasRech", "Area"
+    "Fecha",
+    "Turno",
+    "Maquina",
+    "Diametro",
+    "Libraje",
+    "Acero",
+    "Rosca",
+    "TotalPiezas",
+    "PzasRech",
+    "Area",
 ]
+
 
 def diagnose_columns(df: pd.DataFrame) -> dict[str, Any]:
     """
@@ -125,6 +153,7 @@ def diagnose_columns(df: pd.DataFrame) -> dict[str, Any]:
         "present_after_mapping": present,
     }
 
+
 def _coerce_fecha_series(s: pd.Series) -> pd.Series:
     """
     Convierte una serie a datetime64[ns] de forma robusta.
@@ -134,31 +163,32 @@ def _coerce_fecha_series(s: pd.Series) -> pd.Series:
     s_work = s.copy()
 
     # 1. Manejar valores numéricos (fechas de serie de Excel)
-    numerics = pd.to_numeric(s_work, errors='coerce')
+    numerics = pd.to_numeric(s_work, errors="coerce")
     is_numeric = numerics.notna()
     if is_numeric.any():
         s_work.loc[is_numeric] = pd.to_datetime(
-            numerics[is_numeric], unit='D', origin='1899-12-30', errors='coerce'
+            numerics[is_numeric], unit="D", origin="1899-12-30", errors="coerce"
         )
 
     # 2. Manejar valores de texto (los que no eran numéricos)
     is_str_like = ~is_numeric
     if is_str_like.any():
         s_cleaned = s_work[is_str_like].astype(str).str.strip().str.lstrip("'")
-        
+
         # Intentar formato estricto primero
         parsed_strict = pd.to_datetime(s_cleaned, format="%d/%m/%Y", errors="coerce")
-        
+
         # Para los que fallaron, intentar formato laxo
         failed_strict_mask = parsed_strict.isna()
         if failed_strict_mask.any():
             parsed_strict.loc[failed_strict_mask] = pd.to_datetime(
-                s_cleaned[failed_strict_mask], dayfirst=True, errors='coerce'
+                s_cleaned[failed_strict_mask], dayfirst=True, errors="coerce"
             )
         s_work.loc[is_str_like] = parsed_strict
 
     # 3. Forzar el tipo final a datetime64[ns]
-    return pd.to_datetime(s_work, dayfirst=True, errors='coerce')
+    return pd.to_datetime(s_work, dayfirst=True, errors="coerce")
+
 
 def _normalize_colname(raw: str) -> str:
     """Normaliza un nombre de columna para comparación: sin tildes, minúsculas, sin espacios/guiones."""
@@ -167,7 +197,7 @@ def _normalize_colname(raw: str) -> str:
     # Usar la base de common.normalize_text (quita tildes, baja a minúsculas, colapsa espacios)
     normalized = normalize_text(raw)
     # Quitar todos los espacios, guiones y guiones bajos para una comparación robusta
-    normalized = re.sub(r'[\s_-]+', '', normalized)
+    normalized = re.sub(r"[\s_-]+", "", normalized)
     return normalized
 
 
@@ -224,11 +254,18 @@ def ensure_catalog_description(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         - El nombre de la columna estandarizada ('DescripcionCatalogo').
     """
     df_copy = df.copy()
-    canonical_name = 'DescripcionCatalogo'
-    
+    canonical_name = "DescripcionCatalogo"
+
     # Lista de alias en orden de prioridad
-    aliases = ['DescripcionCatalogo', 'DescCatalogo', 'Descripción', 'Descripcion', 'Descripcion_Catalogo', 'Desc_Catalogo']
-    
+    aliases = [
+        "DescripcionCatalogo",
+        "DescCatalogo",
+        "Descripción",
+        "Descripcion",
+        "Descripcion_Catalogo",
+        "Desc_Catalogo",
+    ]
+
     # Mapeo de columnas lower-case a su nombre original para búsqueda case-insensitive
     lower_to_original_map = {str(c).lower(): c for c in df_copy.columns}
 
@@ -242,12 +279,14 @@ def ensure_catalog_description(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
         df_copy.rename(columns={found_col_original_name: canonical_name}, inplace=True)
     elif not found_col_original_name and canonical_name not in df_copy.columns:
         df_copy[canonical_name] = "—"
-        
+
     return df_copy, canonical_name
+
 
 # =============================================================================
 #  NUEVAS FUNCIONES DE ANÁLISIS
 # =============================================================================
+
 
 def prepare_df_for_analysis(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -278,10 +317,14 @@ def prepare_df_for_analysis(df: pd.DataFrame) -> pd.DataFrame:
 
     missing_cols = [col for col in _ESSENTIAL_COLS if col not in df_renamed.columns]
     if missing_cols:
-        error_msg = f"Columnas esenciales faltantes para el análisis: {', '.join(missing_cols)}"
+        error_msg = (
+            f"Columnas esenciales faltantes para el análisis: {', '.join(missing_cols)}"
+        )
         if mapping_applied:
             # Mostrar un resumen del renombrado para ayudar a depurar
-            mapping_summary = "\n".join([f"  - '{k}' -> '{v}'" for k, v in list(mapping_applied.items())[:10]])
+            mapping_summary = "\n".join(
+                [f"  - '{k}' -> '{v}'" for k, v in list(mapping_applied.items())[:10]]
+            )
             error_msg += f"\n\nSe aplicó el siguiente renombrado automático (parcial):\n{mapping_summary}"
         raise ValueError(error_msg)
 
@@ -297,22 +340,31 @@ def prepare_df_for_analysis(df: pd.DataFrame) -> pd.DataFrame:
     df_copy["Libraje"] = df_copy["Libraje"].astype(str).apply(normalize_text)
     df_copy["Acero"] = df_copy["Acero"].astype(str).apply(normalize_text)
     df_copy["Rosca"] = df_copy["Rosca"].astype(str).apply(normalize_text)
-    df_copy["TotalPiezas"] = pd.to_numeric(df_copy["TotalPiezas"], errors='coerce').fillna(0)
-    df_copy["PzasRech"] = pd.to_numeric(df_copy["PzasRech"], errors='coerce').fillna(0)
+    df_copy["TotalPiezas"] = pd.to_numeric(
+        df_copy["TotalPiezas"], errors="coerce"
+    ).fillna(0)
+    df_copy["PzasRech"] = pd.to_numeric(df_copy["PzasRech"], errors="coerce").fillna(0)
     # Manejar PzasOK si existe después del renombrado
     if "PzasOK" in df_copy.columns:
-        df_copy["PzasOK"] = pd.to_numeric(df_copy["PzasOK"], errors='coerce').fillna(0)
-    df_copy["Area"] = pd.to_numeric(df_copy["Area"], errors='coerce').fillna(-1).astype(int)
+        df_copy["PzasOK"] = pd.to_numeric(df_copy["PzasOK"], errors="coerce").fillna(0)
+    df_copy["Area"] = (
+        pd.to_numeric(df_copy["Area"], errors="coerce").fillna(-1).astype(int)
+    )
 
     # 2. Crear columnas derivadas
     df_copy["AreaLabel"] = df_copy["Area"].map(AREA_CODE_TO_LABEL).fillna("Desconocido")
     df_copy["Dominio"] = df_copy["Area"].map(DOMAIN_BY_AREA_CODE).fillna("Desconocido")
 
     # ComboProducto: concatenar normalizados
-    df_copy["ComboProducto"] = df_copy["Diametro"] + "|" + \
-                               df_copy["Libraje"] + "|" + \
-                               df_copy["Acero"] + "|" + \
-                               df_copy["Rosca"]
+    df_copy["ComboProducto"] = (
+        df_copy["Diametro"]
+        + "|"
+        + df_copy["Libraje"]
+        + "|"
+        + df_copy["Acero"]
+        + "|"
+        + df_copy["Rosca"]
+    )
 
     return df_copy
 
@@ -328,7 +380,7 @@ def apply_filters(
     turnos: Optional[List[str]] = None,
     maquinas: Optional[List[str]] = None,
     dominio: Optional[Union[str, List[str]]] = None,
-    areacodes: Optional[Union[int, Set[int]]] = None
+    areacodes: Optional[Union[int, Set[int]]] = None,
 ) -> pd.DataFrame:
     """
     Aplica filtros a un DataFrame preparado para análisis.
@@ -352,30 +404,53 @@ def apply_filters(
 
     # Validar columnas necesarias para los filtros
     required_filter_cols = {
-        "Diametro", "Libraje", "Acero", "Rosca", "Fecha", "Turno", "Maquina",
-        "Dominio", "Area"
+        "Diametro",
+        "Libraje",
+        "Acero",
+        "Rosca",
+        "Fecha",
+        "Turno",
+        "Maquina",
+        "Dominio",
+        "Area",
     }
     for col in required_filter_cols:
         if col not in filtered_df.columns:
-            raise ValueError(f"Columna '{col}' necesaria para el filtro no encontrada en el DataFrame. "
-                             "Asegúrate de que el DataFrame fue preparado con `prepare_df_for_analysis`.")
+            raise ValueError(
+                f"Columna '{col}' necesaria para el filtro no encontrada en el DataFrame. "
+                "Asegúrate de que el DataFrame fue preparado con `prepare_df_for_analysis`."
+            )
 
     if diametros:
-        filtered_df = filtered_df[filtered_df["Diametro"].isin([normalize_text(d) for d in diametros])]
+        filtered_df = filtered_df[
+            filtered_df["Diametro"].isin([normalize_text(d) for d in diametros])
+        ]
     if librajes:
-        filtered_df = filtered_df[filtered_df["Libraje"].isin([normalize_text(l) for l in librajes])]
+        filtered_df = filtered_df[
+            filtered_df["Libraje"].isin([normalize_text(l) for l in librajes])
+        ]
     if aceros:
-        filtered_df = filtered_df[filtered_df["Acero"].isin([normalize_text(a) for a in aceros])]
+        filtered_df = filtered_df[
+            filtered_df["Acero"].isin([normalize_text(a) for a in aceros])
+        ]
     if roscas:
-        filtered_df = filtered_df[filtered_df["Rosca"].isin([normalize_text(r) for r in roscas])]
+        filtered_df = filtered_df[
+            filtered_df["Rosca"].isin([normalize_text(r) for r in roscas])
+        ]
     if fechas:
         start_date, end_date = fechas
         # Compara solo la parte de la fecha de la columna datetime de forma inclusiva
-        filtered_df = filtered_df[filtered_df["Fecha"].dt.date.between(start_date, end_date, inclusive="both")]
+        filtered_df = filtered_df[
+            filtered_df["Fecha"].dt.date.between(start_date, end_date, inclusive="both")
+        ]
     if turnos:
-        filtered_df = filtered_df[filtered_df["Turno"].isin([normalize_text(t) for t in turnos])]
+        filtered_df = filtered_df[
+            filtered_df["Turno"].isin([normalize_text(t) for t in turnos])
+        ]
     if maquinas:
-        filtered_df = filtered_df[filtered_df["Maquina"].isin([normalize_text(m) for m in maquinas])]
+        filtered_df = filtered_df[
+            filtered_df["Maquina"].isin([normalize_text(m) for m in maquinas])
+        ]
 
     if dominio:
         if isinstance(dominio, str):
@@ -401,7 +476,7 @@ def apply_filters_long(
     diametros: Optional[List[str]] = None,
     librajes: Optional[List[str]] = None,
     aceros: Optional[List[str]] = None,
-    roscas: Optional[List[str]] = None
+    roscas: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """
     Aplica filtros a un DataFrame de rechazos en formato largo.
@@ -418,20 +493,36 @@ def apply_filters_long(
 
     if fechas:
         start_date, end_date = fechas
-        s_fecha = pd.to_datetime(filtered_df["Fecha"], format="%d/%m/%Y", errors="coerce")
-        filtered_df = filtered_df[s_fecha.dt.date.between(start_date, end_date, inclusive="both")]
+        s_fecha = pd.to_datetime(
+            filtered_df["Fecha"], format="%d/%m/%Y", errors="coerce"
+        )
+        filtered_df = filtered_df[
+            s_fecha.dt.date.between(start_date, end_date, inclusive="both")
+        ]
     if maquinas:
-        filtered_df = filtered_df[filtered_df["Maquina"].isin([normalize_text(m) for m in maquinas])]
+        filtered_df = filtered_df[
+            filtered_df["Maquina"].isin([normalize_text(m) for m in maquinas])
+        ]
     if turnos:
-        filtered_df = filtered_df[filtered_df["Turno"].isin([normalize_text(t) for t in turnos])]
+        filtered_df = filtered_df[
+            filtered_df["Turno"].isin([normalize_text(t) for t in turnos])
+        ]
     if diametros:
-        filtered_df = filtered_df[filtered_df["Diametro"].isin([normalize_text(d) for d in diametros])]
+        filtered_df = filtered_df[
+            filtered_df["Diametro"].isin([normalize_text(d) for d in diametros])
+        ]
     if librajes:
-        filtered_df = filtered_df[filtered_df["Libraje"].isin([normalize_text(l) for l in librajes])]
+        filtered_df = filtered_df[
+            filtered_df["Libraje"].isin([normalize_text(l) for l in librajes])
+        ]
     if aceros:
-        filtered_df = filtered_df[filtered_df["Acero"].isin([normalize_text(a) for a in aceros])]
+        filtered_df = filtered_df[
+            filtered_df["Acero"].isin([normalize_text(a) for a in aceros])
+        ]
     if roscas:
-        filtered_df = filtered_df[filtered_df["Rosca"].isin([normalize_text(r) for r in roscas])]
+        filtered_df = filtered_df[
+            filtered_df["Rosca"].isin([normalize_text(r) for r in roscas])
+        ]
 
     return filtered_df
 
@@ -449,41 +540,55 @@ def _normalize_rechazos_long_schema(df: pd.DataFrame) -> pd.DataFrame:
 
     # Mapa de sinónimos: {alias: nombre_canónico}
     synonym_map = {
-        'Clave': 'ClaveCatalogo', 'Clave_Catalogo': 'ClaveCatalogo', 'clavecatalogo': 'ClaveCatalogo',
-        'Descripcion': 'DescripcionCatalogo', 'Descripción': 'DescripcionCatalogo', 'Descripcion_Catalogo': 'DescripcionCatalogo',
-        'SubCategoría': 'SubCategoria', 'Subcategory': 'SubCategoria', 'Sub_Categoria': 'SubCategoria', 'subcategoria': 'SubCategoria',
+        "Clave": "ClaveCatalogo",
+        "Clave_Catalogo": "ClaveCatalogo",
+        "clavecatalogo": "ClaveCatalogo",
+        "Descripcion": "DescripcionCatalogo",
+        "Descripción": "DescripcionCatalogo",
+        "Descripcion_Catalogo": "DescripcionCatalogo",
+        "SubCategoría": "SubCategoria",
+        "Subcategory": "SubCategoria",
+        "Sub_Categoria": "SubCategoria",
+        "subcategoria": "SubCategoria",
     }
 
     # Renombrar columnas existentes basadas en sinónimos
-    rename_dict = {col: synonym_map[col] for col in df_copy.columns if col in synonym_map}
+    rename_dict = {
+        col: synonym_map[col] for col in df_copy.columns if col in synonym_map
+    }
     if rename_dict:
         df_copy.rename(columns=rename_dict, inplace=True)
 
     # Garantizar la existencia de columnas esenciales para la agrupación
-    if 'ClaveCatalogo' not in df_copy.columns:
-        df_copy['ClaveCatalogo'] = 'Sin Clave'
-    if 'DescripcionCatalogo' not in df_copy.columns:
-        df_copy['DescripcionCatalogo'] = 'Sin Descripción'
-    if 'SubCategoria' not in df_copy.columns:
-        df_copy['SubCategoria'] = 'Sin subcategoría'
-    if 'Pzas' not in df_copy.columns:
-        df_copy['Pzas'] = 0
+    if "ClaveCatalogo" not in df_copy.columns:
+        df_copy["ClaveCatalogo"] = "Sin Clave"
+    if "DescripcionCatalogo" not in df_copy.columns:
+        df_copy["DescripcionCatalogo"] = "Sin Descripción"
+    if "SubCategoria" not in df_copy.columns:
+        df_copy["SubCategoria"] = "Sin subcategoría"
+    if "Pzas" not in df_copy.columns:
+        df_copy["Pzas"] = 0
 
     # Garantizar tipos de datos correctos
-    for col in ['ClaveCatalogo', 'DescripcionCatalogo', 'SubCategoria', 'Maquina', 'Turno']:
+    for col in [
+        "ClaveCatalogo",
+        "DescripcionCatalogo",
+        "SubCategoria",
+        "Maquina",
+        "Turno",
+    ]:
         if col in df_copy.columns:
-            df_copy[col] = df_copy[col].astype(str).str.strip().fillna('')
+            df_copy[col] = df_copy[col].astype(str).str.strip().fillna("")
 
-    df_copy['Pzas'] = pd.to_numeric(df_copy['Pzas'], errors='coerce').fillna(0).astype('Int64')
+    df_copy["Pzas"] = (
+        pd.to_numeric(df_copy["Pzas"], errors="coerce").fillna(0).astype("Int64")
+    )
 
     return df_copy
 
 
 def compute_top_claves_rechazo(
-    df_rech_long: pd.DataFrame,
-    *,
-    top_n: int = 10,
-    desglose: str = "Global"
+    df_rech_long: pd.DataFrame, *, top_n: int = 10, desglose: str = "Global"
 ) -> tuple[pd.DataFrame, dict]:
     """
     Calcula el top N de claves de rechazo, con opción de desglose.
@@ -501,7 +606,9 @@ def compute_top_claves_rechazo(
     group_cols = ["ClaveCatalogo", desc_col_name, "SubCategoria"]
     # Soportar desglose combinado: 'Turno + Máquina' o 'Máquina + Turno'
     desglose_norm = (desglose or "").replace(" ", "")
-    if (desglose == "Máquina" or "Máquina" in desglose_norm) and "Maquina" in df_norm.columns:
+    if (
+        desglose == "Máquina" or "Máquina" in desglose_norm
+    ) and "Maquina" in df_norm.columns:
         # Añadir Máquina si corresponde y existe
         if "Maquina" not in group_cols:
             group_cols.append("Maquina")
@@ -533,7 +640,12 @@ def ensure_catalog_description(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     df_copy = df.copy()
 
     # Determinar qué columna usar para descripciones
-    desc_candidates = ['DescripcionCatalogo', 'desc_row0', 'descripcion', 'descripcion_catalogo']
+    desc_candidates = [
+        "DescripcionCatalogo",
+        "desc_row0",
+        "descripcion",
+        "descripcion_catalogo",
+    ]
     desc_col = None
 
     for candidate in desc_candidates:
@@ -543,8 +655,8 @@ def ensure_catalog_description(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
 
     # Si no se encontró ninguna columna de descripción, crear una vacía
     if desc_col is None:
-        df_copy['descripcion_temp'] = ''
-        desc_col = 'descripcion_temp'
+        df_copy["descripcion_temp"] = ""
+        desc_col = "descripcion_temp"
 
     return df_copy, desc_col
 
@@ -557,23 +669,42 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
     # Debug printing removed; use dashboard-level _show_debug when needed
     if df_top.empty:
         fig = go.Figure()
-        fig.update_layout(title="Top Claves de Rechazo", annotations=[dict(text="No hay datos para mostrar", xref="paper", yref="paper", showarrow=False, font=dict(size=20))])
+        fig.update_layout(
+            title="Top Claves de Rechazo",
+            annotations=[
+                dict(
+                    text="No hay datos para mostrar",
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(size=20),
+                )
+            ],
+        )
         return fig
 
     # 1. Estandarización previa del DataFrame
     df_top_std, desc_col = ensure_catalog_description(df_top)
     # internal debug removed
 
-    if 'ClaveCatalogo' not in df_top_std.columns:
-        df_top_std['ClaveCatalogo'] = 'N/A'
-    if 'Pzas' not in df_top_std.columns:
-        df_top_std['Pzas'] = 0
-    df_top_std['Pzas'] = pd.to_numeric(df_top_std['Pzas'], errors='coerce').fillna(0)
+    if "ClaveCatalogo" not in df_top_std.columns:
+        df_top_std["ClaveCatalogo"] = "N/A"
+    if "Pzas" not in df_top_std.columns:
+        df_top_std["Pzas"] = 0
+    df_top_std["Pzas"] = pd.to_numeric(df_top_std["Pzas"], errors="coerce").fillna(0)
 
     # Crear 'EtiquetaClave' de forma vectorizada
-    df_top_std['EtiquetaClave'] = df_top_std['ClaveCatalogo'].astype(str)
-    non_empty_desc_mask = (df_top_std[desc_col].notna()) & (df_top_std[desc_col].astype(str).str.strip().ne('')) & (df_top_std[desc_col].astype(str).str.strip().ne('—'))
-    df_top_std.loc[non_empty_desc_mask, 'EtiquetaClave'] = df_top_std['ClaveCatalogo'].astype(str) + " - " + df_top_std[desc_col].astype(str)
+    df_top_std["EtiquetaClave"] = df_top_std["ClaveCatalogo"].astype(str)
+    non_empty_desc_mask = (
+        (df_top_std[desc_col].notna())
+        & (df_top_std[desc_col].astype(str).str.strip().ne(""))
+        & (df_top_std[desc_col].astype(str).str.strip().ne("—"))
+    )
+    df_top_std.loc[non_empty_desc_mask, "EtiquetaClave"] = (
+        df_top_std["ClaveCatalogo"].astype(str)
+        + " - "
+        + df_top_std[desc_col].astype(str)
+    )
 
     # internal debug removed
 
@@ -615,7 +746,7 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
         df_top_std,
         x="Pzas",
         y="EtiquetaClave",
-        orientation='h',
+        orientation="h",
         color=color_col,
         text="Pzas",
         title=f"Top Claves de Rechazo por {title_desglose}",
@@ -624,8 +755,12 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
         labels={
             "Pzas": "Total Piezas Rechazadas",
             "EtiquetaClave": "Clave de Rechazo",
-            color_col: desglose if color_col and desglose in ["Máquina", "Turno"] else "Subcategoría"
-        }
+            color_col: (
+                desglose
+                if color_col and desglose in ["Máquina", "Turno"]
+                else "Subcategoría"
+            ),
+        },
     )
 
     # internal debug removed
@@ -634,15 +769,16 @@ def build_top_claves_rechazo_figure(df_top: pd.DataFrame, desglose: str) -> go.F
     fig.update_layout(
         xaxis_title="Total Piezas Rechazadas",
         yaxis_title="Clave de Rechazo",
-        legend_title_text=desglose if color_col and desglose in ["Máquina", "Turno"] else "Subcategoría",
+        legend_title_text=(
+            desglose
+            if color_col and desglose in ["Máquina", "Turno"]
+            else "Subcategoría"
+        ),
         hovermode="y unified",
         uniformtext_minsize=8,
-        uniformtext_mode='hide'
+        uniformtext_mode="hide",
     )
-    fig.update_traces(
-        texttemplate='%{x:,.0f}',
-        textposition='outside'
-    )
+    fig.update_traces(texttemplate="%{x:,.0f}", textposition="outside")
 
     # internal debug removed
     return fig
@@ -652,7 +788,7 @@ def compute_producto_critico(
     df: pd.DataFrame,
     *,
     top_n: int = 10,
-    detail_by: Optional[Literal["Turno", "Maquina"]] = None
+    detail_by: Optional[Literal["Turno", "Maquina"]] = None,
 ) -> pd.DataFrame:
     """
     Calcula el "producto crítico" basándose en producción y rechazo.
@@ -676,16 +812,32 @@ def compute_producto_critico(
 
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
-        raise ValueError(f"Columnas esenciales faltantes para el cálculo de producto crítico: {', '.join(missing_cols)}")
+        raise ValueError(
+            f"Columnas esenciales faltantes para el cálculo de producto crítico: {', '.join(missing_cols)}"
+        )
 
+    # Si Area está en el DataFrame original, inclúyela en el agrupamiento para conservarla
     group_cols = ["ComboProducto"]
+    if "Area" in df.columns:
+        group_cols.append("Area")
     if detail_by:
         group_cols.append(detail_by)
 
-    grouped_df = df.groupby(group_cols).agg(
-        Produccion=("TotalPiezas", "sum"),
-        RechazoPzas=("PzasRech", "sum")
-    ).reset_index()
+    grouped_df = (
+        df.groupby(group_cols)
+        .agg(Produccion=("TotalPiezas", "sum"), RechazoPzas=("PzasRech", "sum"))
+        .reset_index()
+    )
+    # Asegurar tipos correctos
+    grouped_df["ComboProducto"] = grouped_df["ComboProducto"].astype(str)
+    if detail_by:
+        grouped_df[detail_by] = grouped_df[detail_by].astype(str)
+    grouped_df["Produccion"] = pd.to_numeric(
+        grouped_df["Produccion"], errors="coerce"
+    ).fillna(0.0)
+    grouped_df["RechazoPzas"] = pd.to_numeric(
+        grouped_df["RechazoPzas"], errors="coerce"
+    ).fillna(0.0)
 
     # Calcular IndiceRechazo
     def calculate_indice_rechazo(row):
@@ -694,33 +846,56 @@ def compute_producto_critico(
         elif row["Produccion"] == 0 and row["RechazoPzas"] == 0:
             return 0.0
         else:  # Produccion == 0 and RechazoPzas > 0
-            return np.nan # Indeterminado
+            return np.nan  # Indeterminado
 
     grouped_df["IndiceRechazo"] = grouped_df.apply(calculate_indice_rechazo, axis=1)
 
     # Ordenar y seleccionar top_n
     # Primero, identificar los top_n ComboProducto por Produccion y luego IndiceRechazo
-    top_combos_base = grouped_df.groupby("ComboProducto").agg(
-        TotalProduccion=("Produccion", "sum"),
-        TotalRechazo=("RechazoPzas", "sum")
-    ).reset_index()
+    top_combos_base = (
+        grouped_df.groupby("ComboProducto")
+        .agg(TotalProduccion=("Produccion", "sum"), TotalRechazo=("RechazoPzas", "sum"))
+        .reset_index()
+    )
+    top_combos_base["TotalProduccion"] = pd.to_numeric(
+        top_combos_base["TotalProduccion"], errors="coerce"
+    ).fillna(0.0)
+    top_combos_base["TotalRechazo"] = pd.to_numeric(
+        top_combos_base["TotalRechazo"], errors="coerce"
+    ).fillna(0.0)
     top_combos_base["IndiceRechazoBase"] = top_combos_base.apply(
-        lambda r: r["TotalRechazo"] / r["TotalProduccion"] if r["TotalProduccion"] > 0 else (0.0 if r["TotalRechazo"] == 0 else np.nan),
-        axis=1
+        lambda r: (
+            r["TotalRechazo"] / r["TotalProduccion"]
+            if r["TotalProduccion"] > 0
+            else (0.0 if r["TotalRechazo"] == 0 else np.nan)
+        ),
+        axis=1,
     )
     top_combos_base = top_combos_base.sort_values(
-        by=["TotalProduccion", "IndiceRechazoBase"],
-        ascending=[False, False]
+        by=["TotalProduccion", "IndiceRechazoBase"], ascending=[False, False]
     ).head(top_n)
 
     # Filtrar el DataFrame agrupado original para incluir solo los top_n combos
-    df_critico = grouped_df[grouped_df["ComboProducto"].isin(top_combos_base["ComboProducto"])].copy()
+    df_critico = grouped_df[
+        grouped_df["ComboProducto"].isin(top_combos_base["ComboProducto"])
+    ].copy()
+    # Tipos seguros
+    df_critico["Produccion"] = pd.to_numeric(
+        df_critico["Produccion"], errors="coerce"
+    ).fillna(0.0)
+    df_critico["IndiceRechazo"] = pd.to_numeric(
+        df_critico["IndiceRechazo"], errors="coerce"
+    )
 
     # Re-ordenar el df_critico para que los combos aparezcan en el orden del top_combos_base
-    df_critico["_combo_order"] = df_critico["ComboProducto"].astype("category").cat.set_categories(
-        top_combos_base["ComboProducto"], ordered=True
+    df_critico["_combo_order"] = (
+        df_critico["ComboProducto"]
+        .astype("category")
+        .cat.set_categories(top_combos_base["ComboProducto"], ordered=True)
     )
-    df_critico = df_critico.sort_values(by=["_combo_order", "Produccion"], ascending=[True, False]).drop(columns="_combo_order")
+    df_critico = df_critico.sort_values(
+        by=["_combo_order", "Produccion"], ascending=[True, False]
+    ).drop(columns="_combo_order")
 
     return df_critico
 
@@ -768,7 +943,7 @@ def build_producto_critico_figure(
     *,
     title: str = "Productos Críticos",
     yaxis_bar: str = "Produccion",
-    yaxis_line: str = "IndiceRechazo"
+    yaxis_line: str = "IndiceRechazo",
 ) -> go.Figure:
     """
     Genera una figura Plotly para visualizar productos críticos.
@@ -788,12 +963,33 @@ def build_producto_critico_figure(
     required_cols = ["ComboProducto", yaxis_bar, yaxis_line]
     missing_cols = [col for col in required_cols if col not in df_critico.columns]
     if missing_cols:
-        raise ValueError(f"Columnas esenciales faltantes para la figura: {', '.join(missing_cols)}")
+        raise ValueError(
+            f"Columnas esenciales faltantes para la figura: {', '.join(missing_cols)}"
+        )
 
     if df_critico.empty:
         fig = go.Figure()
-        fig.update_layout(title=title, annotations=[dict(text="No hay datos para mostrar", xref="paper", yref="paper", showarrow=False, font=dict(size=20))])
+        fig.update_layout(
+            title=title,
+            annotations=[
+                dict(
+                    text="No hay datos para mostrar",
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(size=20),
+                )
+            ],
+        )
         return fig
+
+    # Forzar tipos seguros
+    df_critico = df_critico.copy()
+    df_critico["ComboProducto"] = df_critico["ComboProducto"].astype(str)
+    df_critico[yaxis_bar] = pd.to_numeric(
+        df_critico[yaxis_bar], errors="coerce"
+    ).fillna(0.0)
+    df_critico[yaxis_line] = pd.to_numeric(df_critico[yaxis_line], errors="coerce")
 
     # Determinar el color si hay desagregación
     color_col = None
@@ -805,26 +1001,30 @@ def build_producto_critico_figure(
     fig = go.Figure()
 
     # Barras para Produccion
-    fig.add_trace(go.Bar(
-        x=df_critico["ComboProducto"],
-        y=df_critico[yaxis_bar],
-        name="Producción",
-        marker_color='skyblue',
-        hovertemplate="<b>%{x}</b><br>Producción: %{y:,.0f}<extra></extra>",
-        marker_pattern_shape=color_col # Usar patrón si hay desagregación
-    ))
+    fig.add_trace(
+        go.Bar(
+            x=df_critico["ComboProducto"],
+            y=df_critico[yaxis_bar],
+            name="Producción",
+            marker_color="skyblue",
+            hovertemplate="<b>%{x}</b><br>Producción: %{y:,.0f}<extra></extra>",
+            marker_pattern_shape=color_col,  # Usar patrón si hay desagregación
+        )
+    )
 
     # Línea para IndiceRechazo (eje secundario)
-    fig.add_trace(go.Scatter(
-        x=df_critico["ComboProducto"],
-        y=df_critico[yaxis_line] * 100, # Mostrar como porcentaje
-        name="Índice de Rechazo",
-        mode="lines+markers",
-        yaxis="y2",
-        line=dict(color='red', width=2),
-        marker=dict(size=8, symbol='circle'),
-        hovertemplate="<b>%{x}</b><br>Índice Rechazo: %{y:.2f}%<extra></extra>"
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=df_critico["ComboProducto"],
+            y=df_critico[yaxis_line] * 100,  # Mostrar como porcentaje
+            name="Índice de Rechazo",
+            mode="lines+markers",
+            yaxis="y2",
+            line=dict(color="red", width=2),
+            marker=dict(size=8, symbol="circle"),
+            hovertemplate="<b>%{x}</b><br>Índice Rechazo: %{y:.2f}%<extra></extra>",
+        )
+    )
 
     # Configuración del layout
     fig.update_layout(
@@ -835,11 +1035,18 @@ def build_producto_critico_figure(
             title="Índice de Rechazo (%)",
             overlaying="y",
             side="right",
-            range=[0, df_critico[yaxis_line].max() * 100 * 1.1 if not df_critico.empty else 100] # Ajustar rango
+            range=[
+                0,
+                (
+                    df_critico[yaxis_line].max() * 100 * 1.1
+                    if not df_critico.empty
+                    else 100
+                ),
+            ],  # Ajustar rango
         ),
-        legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.5)'),
+        legend=dict(x=0.01, y=0.99, bgcolor="rgba(255,255,255,0.5)"),
         hovermode="x unified",
-        barmode='group' # Asegura que las barras se agrupen si hay desagregación
+        barmode="group",  # Asegura que las barras se agrupen si hay desagregación
     )
 
     # Si hay desagregación, usar color por la columna de detalle
@@ -849,14 +1056,13 @@ def build_producto_critico_figure(
         # para cada valor de detail_by. Para este ejemplo, el pattern_shape ya da una indicación.
         # Una implementación más robusta con detail_by implicaría iterar sobre los valores únicos de detail_by
         # y añadir un trace por cada uno.
-        pass # La implementación actual ya usa marker_pattern_shape
+        pass  # La implementación actual ya usa marker_pattern_shape
 
     return fig
 
 
 def build_rechazos_debug_payload(
-    df_rech_filtrado: pd.DataFrame,
-    df_rech_long: pd.DataFrame | None = None
+    df_rech_filtrado: pd.DataFrame, df_rech_long: pd.DataFrame | None = None
 ) -> dict:
     """
     Genera un payload de depuración para el DataFrame de rechazos.
@@ -887,7 +1093,7 @@ def build_rechazos_debug_payload(
         "messages": [],
     }
 
-    if df_rech_long is not None and hasattr(df_rech_long, 'attrs'):
+    if df_rech_long is not None and hasattr(df_rech_long, "attrs"):
         payload["messages"] = df_rech_long.attrs.get("rechazos_long_messages", [])
 
     if df_rech_filtrado.empty:
@@ -899,7 +1105,7 @@ def build_rechazos_debug_payload(
     if "Pzas" not in df.columns:
         return payload
 
-    pzas_series = pd.to_numeric(df["Pzas"], errors='coerce')
+    pzas_series = pd.to_numeric(df["Pzas"], errors="coerce")
     payload["pzas_dtype"] = str(pzas_series.dtype)
 
     # Calculate fractional mask safely
@@ -908,7 +1114,16 @@ def build_rechazos_debug_payload(
 
     if payload["filas_frac"] > 0:
         # 1. Generate sample of fractional rows
-        muestra_cols = ["Archivo", "Hoja", "SourceCol", "desc_row0", "ClaveCatalogo", "DescripcionCatalogo", "SubCategoria", "Pzas"]
+        muestra_cols = [
+            "Archivo",
+            "Hoja",
+            "SourceCol",
+            "desc_row0",
+            "ClaveCatalogo",
+            "DescripcionCatalogo",
+            "SubCategoria",
+            "Pzas",
+        ]
         existing_muestra_cols = [col for col in muestra_cols if col in df.columns]
         payload["muestra_frac"] = df.loc[frac_mask, existing_muestra_cols].head(200)
 
@@ -917,19 +1132,26 @@ def build_rechazos_debug_payload(
         group_cols = ["SourceCol", "desc_row0", "ClaveCatalogo"]
         existing_group_cols = [col for col in group_cols if col in df.columns]
         if existing_group_cols:
-            payload["top_fuentes"] = df[frac_mask].groupby(existing_group_cols, dropna=False).agg(ResiduoDecimal=("ResiduoDecimal", "sum")).sort_values("ResiduoDecimal", ascending=False).reset_index().head(50)
+            payload["top_fuentes"] = (
+                df[frac_mask]
+                .groupby(existing_group_cols, dropna=False)
+                .agg(ResiduoDecimal=("ResiduoDecimal", "sum"))
+                .sort_values("ResiduoDecimal", ascending=False)
+                .reset_index()
+                .head(50)
+            )
 
     return payload
+
 
 # =============================================================================
 #  ANÁLISIS DE SENSIBILIDAD DE UMBRALES
 # =============================================================================
 
+
 @st.cache_data
 def compute_clave_drilldown_data(
-    df_rech_long: pd.DataFrame,
-    clave: str,
-    group_by: Literal["Dia", "Maquina"] = "Dia"
+    df_rech_long: pd.DataFrame, clave: str, group_by: Literal["Dia", "Maquina"] = "Dia"
 ) -> pd.DataFrame:
     """
     Prepara los datos para un drill-down de una clave de rechazo específica.
@@ -946,47 +1168,49 @@ def compute_clave_drilldown_data(
         pd.DataFrame: Un DataFrame con los datos agregados, listo para graficar.
     """
     try:
-        if df_rech_long.empty or 'ClaveCatalogo' not in df_rech_long.columns:
+        if df_rech_long.empty or "ClaveCatalogo" not in df_rech_long.columns:
             return pd.DataFrame()
 
         df_norm = _normalize_rechazos_long_schema(df_rech_long)
-        df_clave = df_norm[df_norm['ClaveCatalogo'] == clave].copy()
+        df_clave = df_norm[df_norm["ClaveCatalogo"] == clave].copy()
 
         if df_clave.empty:
             return pd.DataFrame()
 
         if group_by == "Dia":
-            if 'Fecha' not in df_clave.columns:
+            if "Fecha" not in df_clave.columns:
                 return pd.DataFrame()
 
-            df_clave['Fecha'] = pd.to_datetime(df_clave['Fecha'], format="%d/%m/%Y", errors='coerce')
-            df_clave = df_clave.dropna(subset=['Fecha'])
+            df_clave["Fecha"] = pd.to_datetime(
+                df_clave["Fecha"], format="%d/%m/%Y", errors="coerce"
+            )
+            df_clave = df_clave.dropna(subset=["Fecha"])
 
             if df_clave.empty:
                 return pd.DataFrame()
 
             drilldown_df = (
-                df_clave.groupby(pd.Grouper(key='Fecha', freq='D'))
+                df_clave.groupby(pd.Grouper(key="Fecha", freq="D"))
                 .agg(Pzas=("Pzas", "sum"))
                 .reset_index()
             )
             return drilldown_df.sort_values("Fecha")
 
         elif group_by == "Maquina":
-            if 'Maquina' not in df_clave.columns:
+            if "Maquina" not in df_clave.columns:
                 return pd.DataFrame()
 
             drilldown_df = (
-                df_clave.groupby("Maquina")
-                .agg(Pzas=("Pzas", "sum"))
-                .reset_index()
+                df_clave.groupby("Maquina").agg(Pzas=("Pzas", "sum")).reset_index()
             )
             return drilldown_df.sort_values("Pzas", ascending=False)
 
         return pd.DataFrame()
 
     except Exception as e:
-        print(f"Error en compute_clave_drilldown_data para clave '{clave}', group_by '{group_by}': {str(e)}")
+        print(
+            f"Error en compute_clave_drilldown_data para clave '{clave}', group_by '{group_by}': {str(e)}"
+        )
         return pd.DataFrame()
 
 
@@ -994,8 +1218,11 @@ def compute_clave_drilldown_data(
 #  SISTEMA DE CACHE OPTIMIZADO PARA DRILLDOWN
 # =============================================================================
 
+
 @st.cache_data
-def get_cached_drilldown_results(df_rech_long: pd.DataFrame, clave: str) -> dict[str, pd.DataFrame]:
+def get_cached_drilldown_results(
+    df_rech_long: pd.DataFrame, clave: str
+) -> dict[str, pd.DataFrame]:
     """
     Cache optimizado que calcula ambos drilldowns (día y máquina) en una sola operación
     para evitar recálculos innecesarios.
@@ -1011,24 +1238,27 @@ def get_cached_drilldown_results(df_rech_long: pd.DataFrame, clave: str) -> dict
         results = {}
 
         # Calcular drilldown por día
-        results['dia'] = compute_clave_drilldown_data(df_rech_long, clave, group_by="Dia")
+        results["dia"] = compute_clave_drilldown_data(
+            df_rech_long, clave, group_by="Dia"
+        )
 
         # Calcular drilldown por máquina
-        results['maquina'] = compute_clave_drilldown_data(df_rech_long, clave, group_by="Maquina")
+        results["maquina"] = compute_clave_drilldown_data(
+            df_rech_long, clave, group_by="Maquina"
+        )
 
         return results
 
     except Exception as e:
         # En caso de error, devolver DataFrames vacíos
         print(f"Error en get_cached_drilldown_results para clave '{clave}': {str(e)}")
-        return {
-            'dia': pd.DataFrame(),
-            'maquina': pd.DataFrame()
-        }
+        return {"dia": pd.DataFrame(), "maquina": pd.DataFrame()}
 
 
 @st.cache_data
-def precargar_drilldown_top_claves(df_rech_long: pd.DataFrame, top_n: int = 10) -> dict[str, dict[str, pd.DataFrame]]:
+def precargar_drilldown_top_claves(
+    df_rech_long: pd.DataFrame, top_n: int = 10
+) -> dict[str, dict[str, pd.DataFrame]]:
     """
     Precarga los resultados de drilldown para las N claves más frecuentes
     para una experiencia ultra-rápida en las claves más utilizadas.
@@ -1040,16 +1270,11 @@ def precargar_drilldown_top_claves(df_rech_long: pd.DataFrame, top_n: int = 10) 
     Returns:
         Dict con clave->resultados de drilldown para las top N claves
     """
-    if df_rech_long.empty or 'ClaveCatalogo' not in df_rech_long.columns:
+    if df_rech_long.empty or "ClaveCatalogo" not in df_rech_long.columns:
         return {}
 
     # Obtener las claves más frecuentes
-    top_claves = (
-        df_rech_long['ClaveCatalogo']
-        .value_counts()
-        .head(top_n)
-        .index.tolist()
-    )
+    top_claves = df_rech_long["ClaveCatalogo"].value_counts().head(top_n).index.tolist()
 
     cached_results = {}
     for clave in top_claves:
@@ -1065,9 +1290,7 @@ def precargar_drilldown_top_claves(df_rech_long: pd.DataFrame, top_n: int = 10) 
 
 @st.cache_data
 def build_clave_drilldown_figure(
-    df_drilldown: pd.DataFrame,
-    clave: str,
-    group_by: Literal["Dia", "Maquina"]
+    df_drilldown: pd.DataFrame, clave: str, group_by: Literal["Dia", "Maquina"]
 ) -> go.Figure:
     """
     Construye una figura Plotly para el drill-down de una clave de rechazo.
@@ -1082,20 +1305,39 @@ def build_clave_drilldown_figure(
     """
     if df_drilldown.empty:
         fig = go.Figure()
-        fig.update_layout(title=f"Drill-Down para Clave: {clave}", annotations=[dict(text="No hay datos para mostrar", xref="paper", yref="paper", showarrow=False, font=dict(size=20))])
+        fig.update_layout(
+            title=f"Drill-Down para Clave: {clave}",
+            annotations=[
+                dict(
+                    text="No hay datos para mostrar",
+                    xref="paper",
+                    yref="paper",
+                    showarrow=False,
+                    font=dict(size=20),
+                )
+            ],
+        )
         return fig
 
     title = f"Contribución por {group_by} para Clave: {clave}"
     x_axis = "Fecha" if group_by == "Dia" else "Maquina"
-    
-    fig = px.bar(df_drilldown, x=x_axis, y="Pzas", title=title, labels={x_axis: group_by, "Pzas": "Piezas Rechazadas"})
-    fig.update_traces(texttemplate='%{y:,.0f}', textposition='outside')
-    fig.update_layout(uniformtext_minsize=8, uniformtext_mode='hide')
+
+    fig = px.bar(
+        df_drilldown,
+        x=x_axis,
+        y="Pzas",
+        title=title,
+        labels={x_axis: group_by, "Pzas": "Piezas Rechazadas"},
+    )
+    fig.update_traces(texttemplate="%{y:,.0f}", textposition="outside")
+    fig.update_layout(uniformtext_minsize=8, uniformtext_mode="hide")
     return fig
+
 
 # =============================================================================
 #  HELPERS PARA TIEMPO IMPRODUCTIVO (TI)
 # =============================================================================
+
 
 def compute_ti_unmapped_dynamics(df_rech_long: pd.DataFrame) -> pd.DataFrame:
     """
@@ -1113,7 +1355,7 @@ def compute_ti_unmapped_dynamics(df_rech_long: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: Un DataFrame que contiene solo las filas de TI, con la columna
                       'Pzas' renombrada a 'TI_Horas' y columnas de contexto.
     """
-    if df_rech_long.empty or 'Mensaje' not in df_rech_long.columns:
+    if df_rech_long.empty or "Mensaje" not in df_rech_long.columns:
         return pd.DataFrame()
 
     df_norm = _normalize_rechazos_long_schema(df_rech_long.copy())
@@ -1122,7 +1364,7 @@ def compute_ti_unmapped_dynamics(df_rech_long: pd.DataFrame) -> pd.DataFrame:
     # Estas son columnas numéricas que no encontraron un match en el catálogo de rechazos.
     ti_reasons = {"NO_MATCH", "ZG_SCORE_BAJO"}
 
-    df_ti = df_norm[df_norm['Mensaje'].isin(ti_reasons)].copy()
+    df_ti = df_norm[df_norm["Mensaje"].isin(ti_reasons)].copy()
 
     if df_ti.empty:
         return pd.DataFrame()
@@ -1131,9 +1373,7 @@ def compute_ti_unmapped_dynamics(df_rech_long: pd.DataFrame) -> pd.DataFrame:
     df_ti.rename(columns={"Pzas": "TI_Horas"}, inplace=True)
 
     # Seleccionar columnas relevantes para el reporte de TI
-    ti_cols = [
-        "Fecha", "Area", "Maquina", "Turno", "SourceCol", "TI_Horas", "Mensaje"
-    ]
+    ti_cols = ["Fecha", "Area", "Maquina", "Turno", "SourceCol", "TI_Horas", "Mensaje"]
     existing_ti_cols = [col for col in ti_cols if col in df_ti.columns]
 
     return df_ti[existing_ti_cols]
@@ -1150,26 +1390,44 @@ def build_ti_kpis(df_ti_dynamics: pd.DataFrame) -> dict:
         dict: Un diccionario con KPIs, incluyendo el total de horas de TI y
               desgloses por área y máquina.
     """
-    kpis = {'total_ti_horas': 0.0, 'ti_por_area': pd.DataFrame(), 'ti_por_maquina': pd.DataFrame()}
+    kpis = {
+        "total_ti_horas": 0.0,
+        "ti_por_area": pd.DataFrame(),
+        "ti_por_maquina": pd.DataFrame(),
+    }
 
-    if df_ti_dynamics.empty or 'TI_Horas' not in df_ti_dynamics.columns:
+    if df_ti_dynamics.empty or "TI_Horas" not in df_ti_dynamics.columns:
         return kpis
 
-    kpis['total_ti_horas'] = df_ti_dynamics['TI_Horas'].sum()
+    kpis["total_ti_horas"] = df_ti_dynamics["TI_Horas"].sum()
 
-    if 'Area' in df_ti_dynamics.columns:
+    if "Area" in df_ti_dynamics.columns:
         df_with_label = df_ti_dynamics.copy()
-        df_with_label["AreaLabel"] = df_with_label["Area"].map(AREA_CODE_TO_LABEL).fillna("Desconocido")
-        kpis['ti_por_area'] = df_with_label.groupby('AreaLabel').agg(TI_Horas=('TI_Horas', 'sum')).sort_values('TI_Horas', ascending=False).reset_index()
+        df_with_label["AreaLabel"] = (
+            df_with_label["Area"].map(AREA_CODE_TO_LABEL).fillna("Desconocido")
+        )
+        kpis["ti_por_area"] = (
+            df_with_label.groupby("AreaLabel")
+            .agg(TI_Horas=("TI_Horas", "sum"))
+            .sort_values("TI_Horas", ascending=False)
+            .reset_index()
+        )
 
-    if 'Maquina' in df_ti_dynamics.columns:
-        kpis['ti_por_maquina'] = df_ti_dynamics.groupby('Maquina').agg(TI_Horas=('TI_Horas', 'sum')).sort_values('TI_Horas', ascending=False).reset_index()
+    if "Maquina" in df_ti_dynamics.columns:
+        kpis["ti_por_maquina"] = (
+            df_ti_dynamics.groupby("Maquina")
+            .agg(TI_Horas=("TI_Horas", "sum"))
+            .sort_values("TI_Horas", ascending=False)
+            .reset_index()
+        )
 
     return kpis
+
 
 # =============================================================================
 #  HELPERS DE EXPORTACIÓN
 # =============================================================================
+
 
 def export_df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     """
@@ -1184,12 +1442,11 @@ def export_df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     if df.empty:
         return b""
     # Usar utf-8-sig para que Excel maneje correctamente los caracteres especiales
-    return df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+    return df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
 
 
 def export_dfs_to_xlsx_bytes(
-    dfs_map: Dict[str, pd.DataFrame],
-    messages: Optional[List[str]] = None
+    dfs_map: Dict[str, pd.DataFrame], messages: Optional[List[str]] = None
 ) -> bytes:
     """
     Exporta uno o más DataFrames a un archivo XLSX en memoria.
@@ -1207,23 +1464,25 @@ def export_dfs_to_xlsx_bytes(
         bytes: El contenido del archivo XLSX listo para ser descargado.
     """
     output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
         for sheet_name, df in dfs_map.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
 
         if messages:
             messages_df = pd.DataFrame(messages, columns=["Mensajes de Proceso"])
             messages_df.to_excel(writer, sheet_name="Mensajes de Proceso", index=False)
-            
+
     return output.getvalue()
+
+
 # =============================================================================
 #  API PÚBLICA DEL MÓDULO
 # =============================================================================
 
 __all__ = [
-    "compute_basic_kpis", # Existente
-    "compute_cpk_grouped", # Existente
-    "generate_insights_text", # Existente
+    "compute_basic_kpis",  # Existente
+    "compute_cpk_grouped",  # Existente
+    "generate_insights_text",  # Existente
     "prepare_df_for_analysis",
     "apply_filters",
     "compute_producto_critico",

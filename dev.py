@@ -4,9 +4,10 @@ Script de automatización para desarrollo Python/Streamlit
 Ejecuta tareas comunes sin necesidad de confirmación manual
 """
 
+import os
 import subprocess
 import sys
-import os
+
 
 def run_command(cmd, description=""):
     """Ejecuta un comando y muestra el resultado"""
@@ -18,6 +19,7 @@ def run_command(cmd, description=""):
     except subprocess.CalledProcessError as e:
         print(f"❌ {description} - Error: {e}")
         return False
+
 
 def main():
     if len(sys.argv) < 2:
@@ -46,8 +48,10 @@ def main():
         print(f"❌ Comando '{command}' no reconocido.")
         show_help()
 
+
 def show_help():
-    print("""
+    print(
+        """
 📚 Script de Automatización de Desarrollo
 
 💡 Uso: python dev.py [comando]
@@ -68,24 +72,27 @@ def show_help():
    Ctrl+Shift+B - Construir ejecutable
    Ctrl+Shift+C - Limpiar archivos
    Ctrl+Shift+D - Verificar dependencias
-    """)
+    """
+    )
+
 
 if __name__ == "__main__":
     main()
+
 
 class DevAutomation:
     def __init__(self):
         self.project_root = Path(__file__).parent
         self.commands = {
-            'run': self.run_app,
-            'test': self.run_tests,
-            'lint': self.run_linter,
-            'build': self.build_exe,
-            'clean': self.clean_files,
-            'deps': self.check_deps,
-            'install': self.install_deps,
-            'format': self.format_code,
-            'check': self.full_check
+            "run": self.run_app,
+            "test": self.run_tests,
+            "lint": self.run_linter,
+            "build": self.build_exe,
+            "clean": self.clean_files,
+            "deps": self.check_deps,
+            "install": self.install_deps,
+            "format": self.format_code,
+            "check": self.full_check,
         }
 
     def run_command(self, cmd, cwd=None, capture_output=False):
@@ -97,7 +104,7 @@ class DevAutomation:
                 cwd=cwd or self.project_root,
                 capture_output=capture_output,
                 text=True,
-                check=True
+                check=True,
             )
             return result
         except subprocess.CalledProcessError as e:
@@ -122,7 +129,9 @@ class DevAutomation:
     def run_linter(self):
         """Ejecuta el linter"""
         print("🔍 Ejecutando linter...")
-        return self.run_command("python -m flake8 . --max-line-length=100 --extend-ignore=E203,W503")
+        return self.run_command(
+            "python -m flake8 . --max-line-length=100 --extend-ignore=E203,W503"
+        )
 
     def build_exe(self):
         """Construye el ejecutable"""
@@ -132,13 +141,14 @@ class DevAutomation:
     def clean_files(self):
         """Limpia archivos temporales"""
         print("🧹 Limpiando archivos temporales...")
-        dirs_to_clean = ['build', 'dist', '__pycache__']
-        files_to_clean = ['*.pyc', '*.pyo', '*.pyd']
+        dirs_to_clean = ["build", "dist", "__pycache__"]
+        files_to_clean = ["*.pyc", "*.pyo", "*.pyd"]
 
         for dir_name in dirs_to_clean:
             dir_path = self.project_root / dir_name
             if dir_path.exists():
                 import shutil
+
                 shutil.rmtree(dir_path)
                 print(f"   Eliminado: {dir_path}")
 
@@ -169,8 +179,11 @@ class DevAutomation:
         print("🔍 Ejecutando verificación completa...")
         checks = [
             ("Sintaxis", "python -m py_compile main.py"),
-            ("Linter", "python -m flake8 . --max-line-length=100 --extend-ignore=E203,W503"),
-            ("Dependencias", "python -m pip check")
+            (
+                "Linter",
+                "python -m flake8 . --max-line-length=100 --extend-ignore=E203,W503",
+            ),
+            ("Dependencias", "python -m pip check"),
         ]
 
         all_passed = True
@@ -190,7 +203,8 @@ class DevAutomation:
 
     def show_help(self):
         """Muestra la ayuda"""
-        print("""
+        print(
+            """
 📚 Script de Automatización de Desarrollo
 
 💡 Uso: python dev.py [comando]
@@ -220,7 +234,9 @@ class DevAutomation:
    - Usa 'python dev.py check' antes de commits
    - El script maneja errores automáticamente
    - Todas las tareas se ejecutan en background cuando es posible
-        """)
+        """
+        )
+
 
 def main():
     if len(sys.argv) < 2:
@@ -234,12 +250,13 @@ def main():
         result = dev.commands[command]()
         if result is None:
             sys.exit(1)
-    elif command == 'help':
+    elif command == "help":
         dev.show_help()
     else:
         print(f"❌ Comando '{command}' no reconocido.")
         dev.show_help()
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

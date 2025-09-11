@@ -15,9 +15,11 @@ import streamlit as st
 # El módulo 'process' solo orquesta extract/extractOne con un scorer externo.
 try:
     from rapidfuzz import fuzz as rf_fuzz, process as rf_process
+
     _RAPIDFUZZ_AVAILABLE = True
 except ImportError:
     import difflib
+
     _RAPIDFUZZ_AVAILABLE = False
 
 
@@ -30,10 +32,13 @@ DOM_LINEAS: str = "LINEAS"
 DOM_COPLES: str = "COPLES"
 
 AREA_CODE_TO_LABEL: dict[int, str] = {1: "L-A", 2: "L-B", 3: "L-C", 4: "Coples"}
-AREA_LINEAS: set[int] = {1, 2, 3} # Códigos de área que pertenecen a Líneas
-AREA_COPLES: set[int] = {4} # Códigos de área que pertenecen a Coples
+AREA_LINEAS: set[int] = {1, 2, 3}  # Códigos de área que pertenecen a Líneas
+AREA_COPLES: set[int] = {4}  # Códigos de área que pertenecen a Coples
 DOMAIN_BY_AREA_CODE: dict[int, str] = {
-    1: DOM_LINEAS, 2: DOM_LINEAS, 3: DOM_LINEAS, 4: DOM_COPLES
+    1: DOM_LINEAS,
+    2: DOM_LINEAS,
+    3: DOM_LINEAS,
+    4: DOM_COPLES,
 }
 
 # --- Aliases para compatibilidad con UI existente ---
@@ -47,7 +52,14 @@ HOJAS_LINEAS: list[str] = ["L-A", "L-B", "L-C"]
 COLS_CATALOGO: set[str] = {"Clave", "SubCategoria", "Descripcion", "Origen"}
 ORIGEN_VALIDO: set[str] = {"Líneas", "Ambas"}
 
-EXCLUDE_DIRS: set[str] = {".git", ".venv", "build", "dist", "__pycache__", ".mypy_cache"}
+EXCLUDE_DIRS: set[str] = {
+    ".git",
+    ".venv",
+    "build",
+    "dist",
+    "__pycache__",
+    ".mypy_cache",
+}
 EXCEL_PATTERNS: tuple[str, ...] = ("*.xlsx", "*.xls")
 
 CATALOGO_EXACTO = "Claves_de_Rechazo-GPT.xlsx"
@@ -60,8 +72,8 @@ def get_paths() -> dict[str, Path]:
     Se usan nombres de carpeta en mayúsculas para coincidir con la estructura del proyecto
     y asegurar la compatibilidad con sistemas sensibles a mayúsculas/minúsculas como Linux.
     """
-    utils_dir = Path(__file__).resolve().parent           # .../UTILS
-    root = utils_dir.parent                               # .../Proyecto Cpk's
+    utils_dir = Path(__file__).resolve().parent  # .../UTILS
+    root = utils_dir.parent  # .../Proyecto Cpk's
     paths = {
         "ROOT": root,
         "DATA": root / "DATOS",
@@ -77,6 +89,7 @@ def get_paths() -> dict[str, Path]:
 #  UTILIDADES GENERALES
 # =========================
 
+
 def normalize_text(s: str) -> str:
     """
     Normaliza un string: quita tildes, pasa a minúsculas y colapsa espacios.
@@ -84,9 +97,11 @@ def normalize_text(s: str) -> str:
     if not isinstance(s, str):
         return ""
     # NFD: Descompone caracteres en base + diacrítico
-    s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+    s = "".join(
+        c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn"
+    )
     s = s.lower().strip()
-    s = re.sub(r'\s+', ' ', s)  # Colapsa múltiples espacios a uno solo
+    s = re.sub(r"\s+", " ", s)  # Colapsa múltiples espacios a uno solo
     return s
 
 
@@ -105,7 +120,7 @@ def parse_fecha_str(s: str) -> Optional[date]:
 
     try:
         # pd.to_datetime es más robusto que datetime.strptime
-        dt_obj = pd.to_datetime(s, dayfirst=True, errors='coerce')
+        dt_obj = pd.to_datetime(s, dayfirst=True, errors="coerce")
         return dt_obj.date() if pd.notna(dt_obj) else None
     except (ValueError, TypeError):
         return None
@@ -188,6 +203,7 @@ def _similarity(a: str, b: str, method: str = "token_set_ratio") -> float:
 #  CATÁLOGO DE RECHAZO
 # =========================
 
+
 @st.cache_data(show_spinner=False)
 def cargar_catalogo_rechazo() -> pd.DataFrame:
     """
@@ -206,8 +222,10 @@ def cargar_catalogo_rechazo() -> pd.DataFrame:
             ruta = candidatos[0]
 
     if not ruta.exists():
-        st.error(f"Catálogo no encontrado en REFERENCIAS: buscado '{CATALOGO_EXACTO}' "
-                 f"o patrón '{CATALOGO_PATRON}'.")
+        st.error(
+            f"Catálogo no encontrado en REFERENCIAS: buscado '{CATALOGO_EXACTO}' "
+            f"o patrón '{CATALOGO_PATRON}'."
+        )
         st.stop()
 
     try:
@@ -254,15 +272,19 @@ def cargar_overrides_rechazo() -> pd.DataFrame:
         # Validar columnas esenciales
         required_cols = {"Dominio", "Forzar"}
         if not required_cols.issubset(df.columns):
-            st.warning(f"El archivo de overrides '{overrides_path.name}' no tiene las columnas requeridas: {required_cols}.")
+            st.warning(
+                f"El archivo de overrides '{overrides_path.name}' no tiene las columnas requeridas: {required_cols}."
+            )
             return pd.DataFrame()
-        
+
         # Normalizar para facilitar la comparación
-        df['Dominio'] = df['Dominio'].str.upper().str.strip()
-        df['Forzar'] = df['Forzar'].str.upper().str.strip()
+        df["Dominio"] = df["Dominio"].str.upper().str.strip()
+        df["Forzar"] = df["Forzar"].str.upper().str.strip()
         return df
     except Exception as e:
-        st.warning(f"No se pudo cargar el archivo de overrides '{overrides_path.name}': {e}")
+        st.warning(
+            f"No se pudo cargar el archivo de overrides '{overrides_path.name}': {e}"
+        )
         return pd.DataFrame()
 
 
@@ -283,15 +305,19 @@ def cargar_clave_patterns() -> pd.DataFrame:
         # Validar columnas esenciales
         required_cols = {"Clave", "Patron"}
         if not required_cols.issubset(df.columns):
-            st.warning(f"El archivo de patrones '{patterns_path.name}' no tiene las columnas requeridas: {required_cols}.")
+            st.warning(
+                f"El archivo de patrones '{patterns_path.name}' no tiene las columnas requeridas: {required_cols}."
+            )
             return pd.DataFrame()
-        
+
         # Normalizar
-        df['Clave'] = df['Clave'].str.strip()
-        df['Patron'] = df['Patron'].str.strip()
+        df["Clave"] = df["Clave"].str.strip()
+        df["Patron"] = df["Patron"].str.strip()
         return df
     except Exception as e:
-        st.warning(f"No se pudo cargar el archivo de patrones '{patterns_path.name}': {e}")
+        st.warning(
+            f"No se pudo cargar el archivo de patrones '{patterns_path.name}': {e}"
+        )
         return pd.DataFrame()
 
 
@@ -312,26 +338,27 @@ def cargar_mapping_lock() -> pd.DataFrame:
         # Validar columnas esenciales
         required_cols = {"SourceCol", "ClaveCatalogo"}
         if not required_cols.issubset(df.columns):
-            st.warning(f"El archivo de locks '{lock_path.name}' no tiene las columnas requeridas: {required_cols}.")
+            st.warning(
+                f"El archivo de locks '{lock_path.name}' no tiene las columnas requeridas: {required_cols}."
+            )
             return pd.DataFrame()
-        
+
         # Normalizar
-        df['SourceCol'] = df['SourceCol'].str.strip()
-        df['ClaveCatalogo'] = df['ClaveCatalogo'].str.strip()
+        df["SourceCol"] = df["SourceCol"].str.strip()
+        df["ClaveCatalogo"] = df["ClaveCatalogo"].str.strip()
         return df
     except Exception as e:
         st.warning(f"No se pudo cargar el archivo de locks '{lock_path.name}': {e}")
         return pd.DataFrame()
 
+
 # =========================
 #  FUZZY MATCHING
 # =========================
 
+
 def match_descripcion_to_catalog(
-    desc: str,
-    catalog_df: pd.DataFrame,
-    dominio: str,
-    threshold_loose: int = 70
+    desc: str, catalog_df: pd.DataFrame, dominio: str, threshold_loose: int = 70
 ) -> list[dict[str, Any]]:
     """
     Busca la mejor coincidencia para una descripción en el catálogo de rechazo
@@ -346,7 +373,9 @@ def match_descripcion_to_catalog(
         return []
 
     # 1. Filtrar catálogo por el dominio relevante
-    filtro_origen = (catalog_df["Origen"] == dominio) | (catalog_df["Origen"] == "Ambas")
+    filtro_origen = (catalog_df["Origen"] == dominio) | (
+        catalog_df["Origen"] == "Ambas"
+    )
     cat_filtrado_orig = catalog_df[filtro_origen]
     if cat_filtrado_orig.empty:
         return []
@@ -363,26 +392,41 @@ def match_descripcion_to_catalog(
     # 3. Ejecutar fuzzy matching
     if _RAPIDFUZZ_AVAILABLE:
         # rapidfuzz.extract devuelve (choice, score, index)
-        resultados = rf_process.extract(desc_norm, opciones, score_cutoff=threshold_loose, limit=2) # type: ignore
+        resultados = rf_process.extract(desc_norm, opciones, score_cutoff=threshold_loose, limit=2)  # type: ignore
         for _match_desc_norm, score, index in resultados:
             fila = cat_filtrado.iloc[index]
-            match_list.append({
-                "Clave": fila["Clave"], "DescripcionCatalogo": fila["Descripcion"],
-                "SubCategoria": fila["SubCategoria"], "Origen": fila["Origen"], "Score": score,
-            })
+            match_list.append(
+                {
+                    "Clave": fila["Clave"],
+                    "DescripcionCatalogo": fila["Descripcion"],
+                    "SubCategoria": fila["SubCategoria"],
+                    "Origen": fila["Origen"],
+                    "Score": score,
+                }
+            )
 
-    else: # Fallback a difflib
+    else:  # Fallback a difflib
         # difflib.get_close_matches devuelve una lista de strings
-        matches_str = difflib.get_close_matches(desc_norm, opciones, n=2, cutoff=threshold_loose / 100)
+        matches_str = difflib.get_close_matches(
+            desc_norm, opciones, n=2, cutoff=threshold_loose / 100
+        )
         for match_desc_norm in matches_str:
             try:
                 index = opciones.index(match_desc_norm)
                 fila = cat_filtrado.iloc[index]
-                score = difflib.SequenceMatcher(None, desc_norm, match_desc_norm).ratio() * 100
-                match_list.append({
-                    "Clave": fila["Clave"], "DescripcionCatalogo": fila["Descripcion"],
-                    "SubCategoria": fila["SubCategoria"], "Origen": fila["Origen"], "Score": score,
-                })
+                score = (
+                    difflib.SequenceMatcher(None, desc_norm, match_desc_norm).ratio()
+                    * 100
+                )
+                match_list.append(
+                    {
+                        "Clave": fila["Clave"],
+                        "DescripcionCatalogo": fila["Descripcion"],
+                        "SubCategoria": fila["SubCategoria"],
+                        "Origen": fila["Origen"],
+                        "Score": score,
+                    }
+                )
             except ValueError:
                 continue
 
@@ -394,7 +438,9 @@ def match_descripcion_to_catalog(
 # =========================
 
 
-def _detect_header_row_in_sheet(path: Path, sheet_name: str, *, scan_rows: int = 5) -> int:
+def _detect_header_row_in_sheet(
+    path: Path, sheet_name: str, *, scan_rows: int = 5
+) -> int:
     """
     Determina la fila del encabezado. Para los archivos actuales, es siempre la fila 2 (índice 1).
     La firma se mantiene para futura extensibilidad (p. ej. escanear N filas).
@@ -422,7 +468,7 @@ def _get_dynamic_cols(df_data: pd.DataFrame, last_fixed_col: str = "OEE") -> lis
     """
     try:
         last_fixed_col_idx = df_data.columns.get_loc(last_fixed_col)
-        return df_data.columns[last_fixed_col_idx + 1:].tolist()
+        return df_data.columns[last_fixed_col_idx + 1 :].tolist()
     except KeyError:
         # Fallback si la columna fija no existe: no se pueden determinar columnas dinámicas.
         return []
@@ -452,9 +498,17 @@ def _classify_dynamic_column(
     Soporta modo 'must_match' (estricto) y 'fuzzy' (legado).
     """
     audit_info = {
-        "SourceCol": dyn_col_name, "desc_row0": desc_superior, "decision_final": "TI",
-        "reason_code": "DEFAULT_TI", "match_method": None, "score_top1": None, "score_top2": None,
-        "ClaveCatalogo": None, "DescripcionCatalogo": None, "OrigenCatalogo": None, "message": None,
+        "SourceCol": dyn_col_name,
+        "desc_row0": desc_superior,
+        "decision_final": "TI",
+        "reason_code": "DEFAULT_TI",
+        "match_method": None,
+        "score_top1": None,
+        "score_top2": None,
+        "ClaveCatalogo": None,
+        "DescripcionCatalogo": None,
+        "OrigenCatalogo": None,
+        "message": None,
     }
     TI_TOKEN_REGEX = r"\b(hr|hora|min|paro|setup|cambio|mantenimiento)\b"
 
@@ -462,7 +516,7 @@ def _classify_dynamic_column(
     if mode == "must_match":
         audit_info["match_method"] = "key_match"
         norm_key = normalize_text(dyn_col_name)
-        
+
         if norm_key not in valid_keys_map:
             audit_info["reason_code"] = "MUST_MATCH_FAIL"
             return audit_info
@@ -471,7 +525,9 @@ def _classify_dynamic_column(
         catalog_desc_norm = key_info["DescripcionNorm"]
         desc_superior_norm = normalize_text(desc_superior)
 
-        score = _similarity(desc_superior_norm, catalog_desc_norm, method="token_set_ratio")
+        score = _similarity(
+            desc_superior_norm, catalog_desc_norm, method="token_set_ratio"
+        )
         audit_info["score_top1"] = score
 
         if score >= desc_threshold:
@@ -481,16 +537,24 @@ def _classify_dynamic_column(
             if desc_validation_mode == "warn":
                 audit_info["decision_final"] = "RECHAZO"
                 audit_info["reason_code"] = "DESC_MISMATCH_WARN"
-                audit_info["message"] = f"Advertencia: La descripción '{desc_superior}' para la clave '{dyn_col_name}' tuvo un score bajo ({score:.1f}%) pero fue aceptada."
-            else: # "enforce"
+                audit_info["message"] = (
+                    f"Advertencia: La descripción '{desc_superior}' para la clave '{dyn_col_name}' tuvo un score bajo ({score:.1f}%) pero fue aceptada."
+                )
+            else:  # "enforce"
                 audit_info["reason_code"] = "DESC_MISMATCH_ENFORCE"
-                audit_info["message"] = f"Info: La columna '{dyn_col_name}' fue descartada. Su descripción '{desc_superior}' no coincide con la del catálogo (score: {score:.1f}%)."
+                audit_info["message"] = (
+                    f"Info: La columna '{dyn_col_name}' fue descartada. Su descripción '{desc_superior}' no coincide con la del catálogo (score: {score:.1f}%)."
+                )
 
         if audit_info["decision_final"] == "RECHAZO":
-            audit_info.update({
-                "ClaveCatalogo": key_info["Clave"], "DescripcionCatalogo": key_info["Descripcion"],
-                "SubCategoria": key_info["SubCategoria"], "OrigenCatalogo": key_info["Origen"],
-            })
+            audit_info.update(
+                {
+                    "ClaveCatalogo": key_info["Clave"],
+                    "DescripcionCatalogo": key_info["Descripcion"],
+                    "SubCategoria": key_info["SubCategoria"],
+                    "OrigenCatalogo": key_info["Origen"],
+                }
+            )
         return audit_info
 
     # --- MODO LEGADO: FUZZY ---
@@ -499,19 +563,37 @@ def _classify_dynamic_column(
         if not overrides_df.empty:
             for _, override in overrides_df.iterrows():
                 if override["Dominio"] == dominio:
-                    match_sc = pd.isna(override["SourceCol"]) or override["SourceCol"] == dyn_col_name
-                    match_desc = pd.isna(override["DescPattern"]) or re.search(override["DescPattern"], desc_superior, re.IGNORECASE)
+                    match_sc = (
+                        pd.isna(override["SourceCol"])
+                        or override["SourceCol"] == dyn_col_name
+                    )
+                    match_desc = pd.isna(override["DescPattern"]) or re.search(
+                        override["DescPattern"], desc_superior, re.IGNORECASE
+                    )
                     if match_sc and match_desc:
                         audit_info["decision_final"] = override["Forzar"]
-                        audit_info["reason_code"] = f"OVERRIDE_{audit_info['decision_final']}"
+                        audit_info["reason_code"] = (
+                            f"OVERRIDE_{audit_info['decision_final']}"
+                        )
                         audit_info["match_method"] = "override"
-                        audit_info["message"] = f"Decisión por override en columna '{dyn_col_name}'."
-                        if audit_info["decision_final"] == "RECHAZO" and pd.notna(override["ClaveCatalogo"]):
-                            cat_entry = catalog_df[catalog_df["Clave"] == override["ClaveCatalogo"]].iloc[0]
-                            audit_info.update({
-                                "ClaveCatalogo": cat_entry["Clave"], "DescripcionCatalogo": cat_entry["Descripcion"],
-                                "SubCategoria": cat_entry["SubCategoria"], "OrigenCatalogo": cat_entry["Origen"], "score_top1": 100.0
-                            })
+                        audit_info["message"] = (
+                            f"Decisión por override en columna '{dyn_col_name}'."
+                        )
+                        if audit_info["decision_final"] == "RECHAZO" and pd.notna(
+                            override["ClaveCatalogo"]
+                        ):
+                            cat_entry = catalog_df[
+                                catalog_df["Clave"] == override["ClaveCatalogo"]
+                            ].iloc[0]
+                            audit_info.update(
+                                {
+                                    "ClaveCatalogo": cat_entry["Clave"],
+                                    "DescripcionCatalogo": cat_entry["Descripcion"],
+                                    "SubCategoria": cat_entry["SubCategoria"],
+                                    "OrigenCatalogo": cat_entry["Origen"],
+                                    "score_top1": 100.0,
+                                }
+                            )
                         return audit_info
 
         # Aplicar patrones para mejorar coincidencias
@@ -525,34 +607,58 @@ def _classify_dynamic_column(
                         audit_info["decision_final"] = "RECHAZO"
                         audit_info["reason_code"] = "PATTERN_MATCH"
                         audit_info["match_method"] = "pattern"
-                        audit_info.update({
-                            "ClaveCatalogo": entry["Clave"], "DescripcionCatalogo": entry["Descripcion"],
-                            "SubCategoria": entry["SubCategoria"], "OrigenCatalogo": entry["Origen"], "score_top1": 100.0
-                        })
-                        audit_info["message"] = f"Match por patrón en columna '{dyn_col_name}'."
+                        audit_info.update(
+                            {
+                                "ClaveCatalogo": entry["Clave"],
+                                "DescripcionCatalogo": entry["Descripcion"],
+                                "SubCategoria": entry["SubCategoria"],
+                                "OrigenCatalogo": entry["Origen"],
+                                "score_top1": 100.0,
+                            }
+                        )
+                        audit_info["message"] = (
+                            f"Match por patrón en columna '{dyn_col_name}'."
+                        )
                         return audit_info
 
         # Aplicar locks para bloquear mapeos
         if not lock_df.empty:
-            lock_match = lock_df[(lock_df["SourceCol"] == dyn_col_name) & (lock_df["ClaveCatalogo"] == audit_info.get("ClaveCatalogo"))]
+            lock_match = lock_df[
+                (lock_df["SourceCol"] == dyn_col_name)
+                & (lock_df["ClaveCatalogo"] == audit_info.get("ClaveCatalogo"))
+            ]
             if not lock_match.empty:
-                audit_info["message"] = f"Mapeo bloqueado para columna '{dyn_col_name}'."
+                audit_info["message"] = (
+                    f"Mapeo bloqueado para columna '{dyn_col_name}'."
+                )
                 audit_info["reason_code"] = "LOCKED"
                 return audit_info
 
         # 2. Match por Clave Exacta
-        cat_exact_match = catalog_df[(catalog_df["Clave"] == dyn_col_name) & ((catalog_df["Origen"] == dominio) | (catalog_df["Origen"] == "Ambas"))]
+        cat_exact_match = catalog_df[
+            (catalog_df["Clave"] == dyn_col_name)
+            & ((catalog_df["Origen"] == dominio) | (catalog_df["Origen"] == "Ambas"))
+        ]
         if not cat_exact_match.empty:
             entry = cat_exact_match.iloc[0]
-            audit_info.update({
-                "decision_final": "RECHAZO", "reason_code": "MATCH_CLAVE_EXACTA", "match_method": "clave_exacta",
-                "ClaveCatalogo": entry["Clave"], "DescripcionCatalogo": entry["Descripcion"],
-                "SubCategoria": entry["SubCategoria"], "OrigenCatalogo": entry["Origen"], "score_top1": 100.0
-            })
+            audit_info.update(
+                {
+                    "decision_final": "RECHAZO",
+                    "reason_code": "MATCH_CLAVE_EXACTA",
+                    "match_method": "clave_exacta",
+                    "ClaveCatalogo": entry["Clave"],
+                    "DescripcionCatalogo": entry["Descripcion"],
+                    "SubCategoria": entry["SubCategoria"],
+                    "OrigenCatalogo": entry["Origen"],
+                    "score_top1": 100.0,
+                }
+            )
             return audit_info
 
         # 3. Fuzzy Match y Zona Gris
-        matches = match_descripcion_to_catalog(desc_superior, catalog_df, dominio, threshold_loose=int(threshold_low))
+        matches = match_descripcion_to_catalog(
+            desc_superior, catalog_df, dominio, threshold_loose=int(threshold_low)
+        )
         audit_info["match_method"] = "fuzzy"
         if not matches:
             audit_info["reason_code"] = "NO_MATCH"
@@ -560,24 +666,42 @@ def _classify_dynamic_column(
 
         top1 = matches[0]
         top2 = matches[1] if len(matches) > 1 else None
-        audit_info.update({"score_top1": top1["Score"], "score_top2": top2["Score"] if top2 else None})
+        audit_info.update(
+            {"score_top1": top1["Score"], "score_top2": top2["Score"] if top2 else None}
+        )
 
         if top1["Score"] >= threshold_high:
             audit_info["decision_final"] = "RECHAZO"
             audit_info["reason_code"] = "MATCH_FUZZY_ALTO"
-            audit_info.update({ "ClaveCatalogo": top1["Clave"], "DescripcionCatalogo": top1["DescripcionCatalogo"], "SubCategoria": top1["SubCategoria"], "OrigenCatalogo": top1["Origen"] })
+            audit_info.update(
+                {
+                    "ClaveCatalogo": top1["Clave"],
+                    "DescripcionCatalogo": top1["DescripcionCatalogo"],
+                    "SubCategoria": top1["SubCategoria"],
+                    "OrigenCatalogo": top1["Origen"],
+                }
+            )
         elif top1["Score"] > threshold_low:  # Zona Gris
             if re.search(TI_TOKEN_REGEX, normalize_text(desc_superior)):
                 audit_info["reason_code"] = "ZG_TI_TOKEN"
             else:
-                pzas_series_temp = pd.to_numeric(df_data_col, errors='coerce').fillna(0)
+                pzas_series_temp = pd.to_numeric(df_data_col, errors="coerce").fillna(0)
                 non_zero_pzas = pzas_series_temp[pzas_series_temp > 0]
-                if not non_zero_pzas.empty and (non_zero_pzas.round() - non_zero_pzas).abs().mean() <= fraction_tolerance:
+                if (
+                    not non_zero_pzas.empty
+                    and (non_zero_pzas.round() - non_zero_pzas).abs().mean()
+                    <= fraction_tolerance
+                ):
                     audit_info["decision_final"] = "RECHAZO"
                     audit_info["reason_code"] = "ZG_MAYORIA_ENTEROS"
-                    audit_info.update({
-                        "ClaveCatalogo": top1["Clave"], "DescripcionCatalogo": top1["DescripcionCatalogo"], "SubCategoria": top1["SubCategoria"], "OrigenCatalogo": top1["Origen"]
-                    })
+                    audit_info.update(
+                        {
+                            "ClaveCatalogo": top1["Clave"],
+                            "DescripcionCatalogo": top1["DescripcionCatalogo"],
+                            "SubCategoria": top1["SubCategoria"],
+                            "OrigenCatalogo": top1["Origen"],
+                        }
+                    )
                 else:
                     audit_info["reason_code"] = "ZG_INCONCLUSO_TI"
         else:
@@ -591,7 +715,7 @@ def _extract_rechazos_long_from_data(
     df_data: pd.DataFrame,
     df_raw: pd.DataFrame,
     dominio: str,
-    catalog_df: pd.DataFrame,    
+    catalog_df: pd.DataFrame,
     overrides_df: pd.DataFrame,
     patterns_df: pd.DataFrame,
     lock_df: pd.DataFrame,
@@ -603,7 +727,7 @@ def _extract_rechazos_long_from_data(
     threshold_low: float,
     enforce_integer_pzas: bool,
     fraction_tolerance: float,
-    file_context: dict[str, Any]
+    file_context: dict[str, Any],
 ) -> tuple[pd.DataFrame, list[str]]:
     """
     Extrae los datos de rechazo de las columnas dinámicas y los transforma a formato largo.
@@ -627,13 +751,29 @@ def _extract_rechazos_long_from_data(
 
         # La descripción de la clave está SIEMPRE en la fila 1 (índice 0) de la misma columna.
         desc_superior = df_raw.iat[0, raw_col_idx]
-        if pd.isna(desc_superior) or not isinstance(desc_superior, str) or not desc_superior.strip():
+        if (
+            pd.isna(desc_superior)
+            or not isinstance(desc_superior, str)
+            or not desc_superior.strip()
+        ):
             continue
 
         audit_info = _classify_dynamic_column(
-            dyn_col_name, desc_superior, df_data[dyn_col_name], dominio, catalog_df,
-            overrides_df, patterns_df, lock_df, mode, desc_threshold, desc_validation_mode, valid_keys_map,
-            threshold_high, threshold_low, fraction_tolerance
+            dyn_col_name,
+            desc_superior,
+            df_data[dyn_col_name],
+            dominio,
+            catalog_df,
+            overrides_df,
+            patterns_df,
+            lock_df,
+            mode,
+            desc_threshold,
+            desc_validation_mode,
+            valid_keys_map,
+            threshold_high,
+            threshold_low,
+            fraction_tolerance,
         )
 
         if audit_info["message"]:
@@ -644,17 +784,24 @@ def _extract_rechazos_long_from_data(
 
         # Si la decisión fue RECHAZO pero no se asignó un match (ej. override sin clave), buscar el mejor posible
         if audit_info["ClaveCatalogo"] is None:
-            best_match_list = match_descripcion_to_catalog(desc_superior, catalog_df, dominio, threshold_loose=int(threshold_low))
-            if not best_match_list: continue
+            best_match_list = match_descripcion_to_catalog(
+                desc_superior, catalog_df, dominio, threshold_loose=int(threshold_low)
+            )
+            if not best_match_list:
+                continue
             best_match = best_match_list[0]
-            audit_info.update({
-                "ClaveCatalogo": best_match["Clave"], "DescripcionCatalogo": best_match["DescripcionCatalogo"],
-                "SubCategoria": best_match["SubCategoria"], "OrigenCatalogo": best_match["Origen"],
-                "score_top1": best_match["Score"]
-            })
+            audit_info.update(
+                {
+                    "ClaveCatalogo": best_match["Clave"],
+                    "DescripcionCatalogo": best_match["DescripcionCatalogo"],
+                    "SubCategoria": best_match["SubCategoria"],
+                    "OrigenCatalogo": best_match["Origen"],
+                    "score_top1": best_match["Score"],
+                }
+            )
 
         # --- Preparación para Melt ---
-        pzas_series = pd.to_numeric(df_data[dyn_col_name], errors='coerce').fillna(0)
+        pzas_series = pd.to_numeric(df_data[dyn_col_name], errors="coerce").fillna(0)
         if enforce_integer_pzas:
             pzas_series = pzas_series.round()
 
@@ -672,22 +819,48 @@ def _extract_rechazos_long_from_data(
         temp_df["SubCategoria"] = audit_info["SubCategoria"]
         temp_df["OrigenCatalogo"] = audit_info["OrigenCatalogo"]
         temp_df["match_score"] = audit_info["score_top1"]
-        temp_df["Pzas"] = filas_con_rechazo # Valor del evento
+        temp_df["Pzas"] = filas_con_rechazo  # Valor del evento
         temp_df["reason_code"] = audit_info["reason_code"]
 
         # Definir columnas a mantener para el formato largo
-        columnas_base = ["Fecha", "Turno", "Maquina", "Diametro", "Libraje", "Acero", "Rosca", "Area", "TotalPiezas", "PzasRech"]
-        columnas_evento = ["SourceCol", "desc_row0", "ClaveCatalogo", "DescripcionCatalogo", "SubCategoria", "OrigenCatalogo", "match_score", "Pzas", "reason_code"]
-        columnas_a_mantener = [c for c in columnas_base if c in temp_df.columns] + columnas_evento
+        columnas_base = [
+            "Fecha",
+            "Turno",
+            "Maquina",
+            "Diametro",
+            "Libraje",
+            "Acero",
+            "Rosca",
+            "Area",
+            "TotalPiezas",
+            "PzasRech",
+        ]
+        columnas_evento = [
+            "SourceCol",
+            "desc_row0",
+            "ClaveCatalogo",
+            "DescripcionCatalogo",
+            "SubCategoria",
+            "OrigenCatalogo",
+            "match_score",
+            "Pzas",
+            "reason_code",
+        ]
+        columnas_a_mantener = [
+            c for c in columnas_base if c in temp_df.columns
+        ] + columnas_evento
         all_rechazos.append(temp_df[columnas_a_mantener])
 
-    df_result = pd.concat(all_rechazos, ignore_index=True) if all_rechazos else pd.DataFrame()
+    df_result = (
+        pd.concat(all_rechazos, ignore_index=True) if all_rechazos else pd.DataFrame()
+    )
     return df_result, messages
 
 
 # =========================
 #  CONSOLIDACIÓN + MANIFIESTO
 # =========================
+
 
 def _leer_hoja_excel(ruta: Path, hoja: str) -> pd.DataFrame | None:
     """
@@ -729,7 +902,9 @@ def _manifest_row(ruta: Path) -> dict:
 
 
 @st.cache_data(show_spinner=False)
-def cargar_lineas_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+def cargar_lineas_con_manifiesto(
+    recursive: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Consolida TODAS las hojas L-A/B/C de todos los .xlsx en datos/lineas.
     Devuelve (df_unificado, manifest_df)
@@ -777,13 +952,17 @@ def cargar_lineas_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
     df_unificado = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     manifest_df = pd.DataFrame(manifest)
     if not manifest_df.empty:
-        manifest_df = manifest_df.sort_values(["ok", "archivo"], ascending=[False, True])
+        manifest_df = manifest_df.sort_values(
+            ["ok", "archivo"], ascending=[False, True]
+        )
 
     return df_unificado, manifest_df
 
 
 @st.cache_data(show_spinner=False)
-def cargar_coples_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+def cargar_coples_con_manifiesto(
+    recursive: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Consolida TODOS los archivos "BDD_COP_*.xlsx" en datos/coples/.
     Para cada archivo, lee su primera hoja asumiendo que el header está en la fila 2.
@@ -799,7 +978,9 @@ def cargar_coples_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
         raise NotADirectoryError(f"❌ La ruta no es una carpeta: {carpeta}")
 
     # 1. Descubrimiento de fuentes específico para Coples
-    fuentes = listar_fuentes(carpeta, mode="dir", recursive=recursive, patterns=("BDD_COP_*.xlsx",))
+    fuentes = listar_fuentes(
+        carpeta, mode="dir", recursive=recursive, patterns=("BDD_COP_*.xlsx",)
+    )
 
     frames: list[pd.DataFrame] = []
     manifest: list[dict] = []
@@ -823,40 +1004,48 @@ def cargar_coples_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
             hoja_a_leer = hojas[0]
             try:
                 # Buscar hoja con nombre exacto 'COPLES' (ignorando mayúsculas/minúsculas)
-                match = next((h for h in hojas if str(h).strip().lower() == 'coples'), None)
+                match = next(
+                    (h for h in hojas if str(h).strip().lower() == "coples"), None
+                )
                 if match:
                     hoja_a_leer = match
                 else:
                     # Fallback: buscar cualquier hoja que contenga 'coples' en su nombre
-                    match_contains = next((h for h in hojas if 'coples' in str(h).strip().lower()), None)
+                    match_contains = next(
+                        (h for h in hojas if "coples" in str(h).strip().lower()), None
+                    )
                     if match_contains:
                         hoja_a_leer = match_contains
             except Exception:
                 hoja_a_leer = hojas[0]
-            
+
             # 3. Header y lectura de datos
             df = _leer_hoja_excel(ruta, hoja_a_leer)
 
             if df is None or df.empty:
-                info["motivo_falla"] = f"La hoja '{hoja_a_leer}' está vacía o no se pudo leer."
+                info["motivo_falla"] = (
+                    f"La hoja '{hoja_a_leer}' está vacía o no se pudo leer."
+                )
                 manifest.append(info)
                 continue
 
             # Aplanar MultiIndex si pandas lo crea por error, y limpiar nombres
             if isinstance(df.columns, pd.MultiIndex):
-                df.columns = ['_'.join(map(str, col)).strip() for col in df.columns.values]
+                df.columns = [
+                    "_".join(map(str, col)).strip() for col in df.columns.values
+                ]
             else:
                 df.columns = [str(col).strip() for col in df.columns]
 
             # 4. Columna Area y tipos
-            if 'Area' not in df.columns:
-                df['Area'] = 4
+            if "Area" not in df.columns:
+                df["Area"] = 4
             else:
-                df['Area'] = pd.to_numeric(df['Area'], errors='coerce').fillna(4)
-            df['Area'] = df['Area'].astype(int)
+                df["Area"] = pd.to_numeric(df["Area"], errors="coerce").fillna(4)
+            df["Area"] = df["Area"].astype(int)
 
             frames.append(df)
-            
+
             # 5. Actualizar manifiesto
             info["ok"] = True
             info["sheets"] = [hoja_a_leer]
@@ -871,7 +1060,9 @@ def cargar_coples_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
     df_unificado = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     manifest_df = pd.DataFrame(manifest)
     if not manifest_df.empty:
-        manifest_df = manifest_df.sort_values(["ok", "archivo"], ascending=[False, True])
+        manifest_df = manifest_df.sort_values(
+            ["ok", "archivo"], ascending=[False, True]
+        )
 
     return df_unificado, manifest_df
 
@@ -879,6 +1070,7 @@ def cargar_coples_con_manifiesto(recursive: bool = False) -> tuple[pd.DataFrame,
 # =========================
 #  SISTEMA DE PRECARGA OPTIMIZADO
 # =========================
+
 
 @st.cache_data(show_spinner="Precargando datos de producción...")
 def precargar_datos_produccion() -> dict[str, tuple[pd.DataFrame, pd.DataFrame]]:
@@ -897,20 +1089,20 @@ def precargar_datos_produccion() -> dict[str, tuple[pd.DataFrame, pd.DataFrame]]
     # Precargar datos de Líneas
     try:
         print("📊 Cargando datos de LÍNEAS...")
-        datos['lineas'] = cargar_lineas_con_manifiesto(recursive=False)
+        datos["lineas"] = cargar_lineas_con_manifiesto(recursive=False)
         print(f"✅ Datos de LÍNEAS cargados: {len(datos['lineas'][0]):,} filas")
     except Exception as e:
         print(f"❌ Error cargando datos de LÍNEAS: {e}")
-        datos['lineas'] = (pd.DataFrame(), pd.DataFrame())
+        datos["lineas"] = (pd.DataFrame(), pd.DataFrame())
 
     # Precargar datos de Coples
     try:
         print("📊 Cargando datos de COPLES...")
-        datos['coples'] = cargar_coples_con_manifiesto(recursive=False)
+        datos["coples"] = cargar_coples_con_manifiesto(recursive=False)
         print(f"✅ Datos de COPLES cargados: {len(datos['coples'][0]):,} filas")
     except Exception as e:
         print(f"❌ Error cargando datos de COPLES: {e}")
-        datos['coples'] = (pd.DataFrame(), pd.DataFrame())
+        datos["coples"] = (pd.DataFrame(), pd.DataFrame())
 
     print("🎉 Precarga completada!")
     return datos
@@ -937,28 +1129,32 @@ def precargar_datos_rechazos() -> dict[str, pd.DataFrame]:
     # Precargar datos de rechazos de Líneas
     try:
         print("📊 Cargando rechazos de LÍNEAS...")
-        datos_rechazos['lineas'] = cargar_rechazos_long_area(
+        datos_rechazos["lineas"] = cargar_rechazos_long_area(
             dominio=DOM_LINEAS,
             threshold_high=DEFAULT_THRESHOLD_HIGH,
-            threshold_low=DEFAULT_THRESHOLD_LOW
+            threshold_low=DEFAULT_THRESHOLD_LOW,
         )
-        print(f"✅ Rechazos de LÍNEAS cargados: {len(datos_rechazos['lineas']):,} filas")
+        print(
+            f"✅ Rechazos de LÍNEAS cargados: {len(datos_rechazos['lineas']):,} filas"
+        )
     except Exception as e:
         print(f"❌ Error cargando rechazos de LÍNEAS: {e}")
-        datos_rechazos['lineas'] = pd.DataFrame()
+        datos_rechazos["lineas"] = pd.DataFrame()
 
     # Precargar datos de rechazos de Coples
     try:
         print("📊 Cargando rechazos de COPLES...")
-        datos_rechazos['coples'] = cargar_rechazos_long_area(
+        datos_rechazos["coples"] = cargar_rechazos_long_area(
             dominio=DOM_COPLES,
             threshold_high=DEFAULT_THRESHOLD_HIGH,
-            threshold_low=DEFAULT_THRESHOLD_LOW
+            threshold_low=DEFAULT_THRESHOLD_LOW,
         )
-        print(f"✅ Rechazos de COPLES cargados: {len(datos_rechazos['coples']):,} filas")
+        print(
+            f"✅ Rechazos de COPLES cargados: {len(datos_rechazos['coples']):,} filas"
+        )
     except Exception as e:
         print(f"❌ Error cargando rechazos de COPLES: {e}")
-        datos_rechazos['coples'] = pd.DataFrame()
+        datos_rechazos["coples"] = pd.DataFrame()
 
     print("🎉 Precarga de rechazos completada!")
     return datos_rechazos
@@ -968,7 +1164,7 @@ def cargar_rechazos_con_cache_inteligente(
     dominio: str,
     threshold_high: float,
     threshold_low: float,
-    datos_rechazos_cache: dict[str, pd.DataFrame] = None
+    datos_rechazos_cache: dict[str, pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Carga datos de rechazos usando cache inteligente.
@@ -989,9 +1185,12 @@ def cargar_rechazos_con_cache_inteligente(
     DEFAULT_THRESHOLD_LOW = 82.0
 
     # Si los umbrales coinciden con los valores por defecto, usar cache
-    if (abs(threshold_high - DEFAULT_THRESHOLD_HIGH) < 0.01 and
-        abs(threshold_low - DEFAULT_THRESHOLD_LOW) < 0.01 and
-        datos_rechazos_cache and dominio in datos_rechazos_cache):
+    if (
+        abs(threshold_high - DEFAULT_THRESHOLD_HIGH) < 0.01
+        and abs(threshold_low - DEFAULT_THRESHOLD_LOW) < 0.01
+        and datos_rechazos_cache
+        and dominio in datos_rechazos_cache
+    ):
 
         df_cached = datos_rechazos_cache[dominio]
         if not df_cached.empty:
@@ -1001,13 +1200,13 @@ def cargar_rechazos_con_cache_inteligente(
     # Si no coinciden los umbrales o no hay cache, cargar normalmente
     print(f"🔄 Cargando rechazos para {dominio.upper()} con umbrales personalizados...")
     return cargar_rechazos_long_area(
-        dominio=dominio,
-        threshold_high=threshold_high,
-        threshold_low=threshold_low
+        dominio=dominio, threshold_high=threshold_high, threshold_low=threshold_low
     )
 
 
-def obtener_datos_cacheados(dominio: str, datos_cache: dict[str, tuple[pd.DataFrame, pd.DataFrame]]) -> tuple[pd.DataFrame, pd.DataFrame]:
+def obtener_datos_cacheados(
+    dominio: str, datos_cache: dict[str, tuple[pd.DataFrame, pd.DataFrame]]
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Obtiene los datos cacheados para un dominio específico.
 
@@ -1020,9 +1219,9 @@ def obtener_datos_cacheados(dominio: str, datos_cache: dict[str, tuple[pd.DataFr
     """
     if dominio not in datos_cache:
         print(f"⚠️ Dominio '{dominio}' no encontrado en caché, cargando datos...")
-        if dominio == 'lineas':
+        if dominio == "lineas":
             return cargar_lineas_con_manifiesto(recursive=False)
-        elif dominio == 'coples':
+        elif dominio == "coples":
             return cargar_coples_con_manifiesto(recursive=False)
         else:
             return pd.DataFrame(), pd.DataFrame()
@@ -1034,7 +1233,10 @@ def obtener_datos_cacheados(dominio: str, datos_cache: dict[str, tuple[pd.DataFr
 #  UTILIDADES DE CARGA CON MEJOR UX
 # =========================
 
-def cargar_datos_con_feedback(dominio: str, datos_cache: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+
+def cargar_datos_con_feedback(
+    dominio: str, datos_cache: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Carga datos con mejor feedback visual para el usuario.
 
@@ -1049,14 +1251,16 @@ def cargar_datos_con_feedback(dominio: str, datos_cache: dict[str, tuple[pd.Data
         # Datos ya están en caché
         df_raw, manifest_df = datos_cache[dominio]
         if not df_raw.empty:
-            st.success(f"✅ Datos de {dominio.upper()} cargados desde caché ({len(df_raw):,} filas)")
+            st.success(
+                f"✅ Datos de {dominio.upper()} cargados desde caché ({len(df_raw):,} filas)"
+            )
         return df_raw, manifest_df
 
     # Cargar datos con spinner personalizado
     with st.spinner(f"🔄 Cargando datos de {dominio.upper()}..."):
-        if dominio == 'lineas':
+        if dominio == "lineas":
             df_raw, manifest_df = cargar_lineas_con_manifiesto(recursive=False)
-        elif dominio == 'coples':
+        elif dominio == "coples":
             df_raw, manifest_df = cargar_coples_con_manifiesto(recursive=False)
         else:
             df_raw, manifest_df = pd.DataFrame(), pd.DataFrame()
@@ -1115,11 +1319,11 @@ def cargar_area(area: Any, **kwargs) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     if dominio == DOM_LINEAS:
         df_consolidado, _ = cargar_lineas_con_manifiesto(**kwargs)
-        return df_consolidado, df_consolidado # Devuelve el mismo df para ambos
+        return df_consolidado, df_consolidado  # Devuelve el mismo df para ambos
 
     if dominio == DOM_COPLES:
         df_consolidado, _ = cargar_coples_con_manifiesto(**kwargs)
-        return df_consolidado, df_consolidado # Devuelve el mismo df para ambos
+        return df_consolidado, df_consolidado  # Devuelve el mismo df para ambos
 
     # Esta línea es teóricamente inalcanzable gracias a _resolve_domain
     raise RuntimeError(f"Lógica de dominio no implementada para '{dominio}'")
@@ -1136,7 +1340,7 @@ def cargar_rechazos_long_area(
     desc_validation_mode: Literal["enforce", "warn"] = "enforce",
     threshold_high: float = 92.0,
     threshold_low: float = 82.0,
-    enforce_integer_pzas: bool = True, # Mantener True para asegurar Pzas enteras
+    enforce_integer_pzas: bool = True,  # Mantener True para asegurar Pzas enteras
     fraction_tolerance: float = 1e-6,
 ) -> pd.DataFrame:
     """
@@ -1168,11 +1372,13 @@ def cargar_rechazos_long_area(
     overrides_df = cargar_overrides_rechazo()
     patterns_df = cargar_clave_patterns()
     lock_df = cargar_mapping_lock()
-    
+
     # --- Pre-build map for strict mode ---
     valid_keys_map = {}
     if mode == "must_match":
-        cat_filtrado = catalog_df[(catalog_df["Origen"] == dominio) | (catalog_df["Origen"] == "Ambas")]
+        cat_filtrado = catalog_df[
+            (catalog_df["Origen"] == dominio) | (catalog_df["Origen"] == "Ambas")
+        ]
         for _, row in cat_filtrado.iterrows():
             norm_key = normalize_text(row["Clave"])
             if norm_key not in valid_keys_map:
@@ -1189,10 +1395,14 @@ def cargar_rechazos_long_area(
         fuentes = listar_fuentes(carpeta, mode="dir", recursive=False)
         hojas_a_leer = None  # Para coples, se leen todas las hojas del archivo
     else:
-        raise ValueError(f"Dominio '{dominio}' no reconocido. Use DOM_LINEAS o DOM_COPLES.")
+        raise ValueError(
+            f"Dominio '{dominio}' no reconocido. Use DOM_LINEAS o DOM_COPLES."
+        )
 
     if not fuentes:
-        raise ValueError(f"No se encontraron archivos Excel en la carpeta '{carpeta}' para el dominio '{dominio}'.")
+        raise ValueError(
+            f"No se encontraron archivos Excel en la carpeta '{carpeta}' para el dominio '{dominio}'."
+        )
     messages = []
 
     for path in fuentes:
@@ -1233,7 +1443,7 @@ def cargar_rechazos_long_area(
                 threshold_low=threshold_low,
                 enforce_integer_pzas=enforce_integer_pzas,
                 fraction_tolerance=fraction_tolerance,
-                file_context={"path": path, "sheet": sheet}
+                file_context={"path": path, "sheet": sheet},
             )
             messages.extend(partial_messages)
 
@@ -1245,10 +1455,29 @@ def cargar_rechazos_long_area(
     # 3. Consolidación y aplicación de contrato de salida
     if not all_rechazos_long:
         schema_cols = [
-            "Fecha", "Turno", "Maquina", "Area", "AreaLabel", "Dominio", "Diametro",
-            "Libraje", "Acero", "Rosca", "TotalPiezas", "PzasRech",
-            "ClaveCatalogo", "DescripcionCatalogo", "SubCategoria", "OrigenCatalogo", "reason_code",
-            "match_score", "desc_row0", "SourceCol", "Pzas", "Archivo", "Hoja"
+            "Fecha",
+            "Turno",
+            "Maquina",
+            "Area",
+            "AreaLabel",
+            "Dominio",
+            "Diametro",
+            "Libraje",
+            "Acero",
+            "Rosca",
+            "TotalPiezas",
+            "PzasRech",
+            "ClaveCatalogo",
+            "DescripcionCatalogo",
+            "SubCategoria",
+            "OrigenCatalogo",
+            "reason_code",
+            "match_score",
+            "desc_row0",
+            "SourceCol",
+            "Pzas",
+            "Archivo",
+            "Hoja",
         ]
         empty_df = pd.DataFrame(columns=schema_cols)
         empty_df.attrs["rechazos_long_messages"] = messages
@@ -1261,13 +1490,15 @@ def cargar_rechazos_long_area(
     if "PzasRech" not in final_df.columns:
         final_df["PzasRech"] = 0
 
-    final_df['ClaveCatalogo'] = final_df['ClaveCatalogo'].astype(str).str.strip()
-    if 'SubCategoria' not in final_df.columns:
-        final_df['SubCategoria'] = 'Sin subcategoría'
+    final_df["ClaveCatalogo"] = final_df["ClaveCatalogo"].astype(str).str.strip()
+    if "SubCategoria" not in final_df.columns:
+        final_df["SubCategoria"] = "Sin subcategoría"
     else:
-        final_df['SubCategoria'] = final_df['SubCategoria'].fillna('Sin subcategoría')
+        final_df["SubCategoria"] = final_df["SubCategoria"].fillna("Sin subcategoría")
 
-    final_df['AreaLabel'] = final_df['Area'].map(AREA_CODE_TO_LABEL).fillna('Desconocido')
+    final_df["AreaLabel"] = (
+        final_df["Area"].map(AREA_CODE_TO_LABEL).fillna("Desconocido")
+    )
 
     if "Pzas" in final_df.columns:
         final_df["Pzas"] = final_df["Pzas"].clip(lower=0)
@@ -1276,9 +1507,11 @@ def cargar_rechazos_long_area(
     final_df.attrs["rechazos_long_messages"] = messages
     return final_df
 
+
 # =========================
 #  AUDITORÍA DE MAPEO
 # =========================
+
 
 @st.cache_data(show_spinner="Generando auditoría de mapeo...")
 def get_mapping_audit(
@@ -1302,7 +1535,9 @@ def get_mapping_audit(
     # --- Pre-build map for strict mode ---
     valid_keys_map = {}
     if mode == "must_match":
-        cat_filtrado = catalog_df[(catalog_df["Origen"] == dominio) | (catalog_df["Origen"] == "Ambas")]
+        cat_filtrado = catalog_df[
+            (catalog_df["Origen"] == dominio) | (catalog_df["Origen"] == "Ambas")
+        ]
         for _, row in cat_filtrado.iterrows():
             norm_key = normalize_text(row["Clave"])
             if norm_key not in valid_keys_map:
@@ -1322,34 +1557,56 @@ def get_mapping_audit(
         return pd.DataFrame()
 
     for path in fuentes:
-        sheets_in_file = hojas_a_leer or (pd.ExcelFile(path).sheet_names if path.exists() else [])
+        sheets_in_file = hojas_a_leer or (
+            pd.ExcelFile(path).sheet_names if path.exists() else []
+        )
         for sheet in sheets_in_file:
             df_raw = _read_sheet_raw(path, sheet)
-            if df_raw is None or df_raw.empty: continue
+            if df_raw is None or df_raw.empty:
+                continue
 
             header_idx = _detect_header_row_in_sheet(path, sheet)
             try:
                 df_data = pd.read_excel(path, sheet_name=sheet, header=header_idx)
-                if df_data.empty: continue
-            except Exception: continue
+                if df_data.empty:
+                    continue
+            except Exception:
+                continue
 
             for dyn_col_name in _get_dynamic_cols(df_data):
-                raw_col_idx = {v: k for k, v in df_raw.iloc[1].items()}.get(dyn_col_name)
-                if raw_col_idx is None: continue
+                raw_col_idx = {v: k for k, v in df_raw.iloc[1].items()}.get(
+                    dyn_col_name
+                )
+                if raw_col_idx is None:
+                    continue
                 desc_superior = df_raw.iat[0, raw_col_idx]
                 audit_result = _classify_dynamic_column(
-                    dyn_col_name, desc_superior, df_data[dyn_col_name], dominio, catalog_df,
-                    overrides_df, patterns_df, lock_df, mode, desc_threshold, desc_validation_mode, valid_keys_map,
-                    threshold_high, threshold_low, 1e-6
+                    dyn_col_name,
+                    desc_superior,
+                    df_data[dyn_col_name],
+                    dominio,
+                    catalog_df,
+                    overrides_df,
+                    patterns_df,
+                    lock_df,
+                    mode,
+                    desc_threshold,
+                    desc_validation_mode,
+                    valid_keys_map,
+                    threshold_high,
+                    threshold_low,
+                    1e-6,
                 )
                 audit_result.update({"Archivo": path.name, "Hoja": sheet})
                 audit_records.append(audit_result)
 
     return pd.DataFrame(audit_records)
 
+
 # =========================
 #  HELPERS UI (opcional)
 # =========================
+
 
 def get_messages_from_df(df: pd.DataFrame) -> list[str]:
     """
@@ -1358,7 +1615,10 @@ def get_messages_from_df(df: pd.DataFrame) -> list[str]:
     """
     return df.attrs.get("rechazos_long_messages", [])
 
-def render_manifest(manifest_df: pd.DataFrame, title: str = "Manifiesto de archivos") -> None:
+
+def render_manifest(
+    manifest_df: pd.DataFrame, title: str = "Manifiesto de archivos"
+) -> None:
     """
     Renderiza un DataFrame de manifiesto de archivos en Streamlit.
     """
@@ -1367,11 +1627,11 @@ def render_manifest(manifest_df: pd.DataFrame, title: str = "Manifiesto de archi
         return
     st.subheader(title)
     cols = ["archivo", "ok", "sheets", "filas", "modificado", "tam_bytes"]
-    st.dataframe(manifest_df[cols], use_container_width=True, height=320)
+    st.dataframe(manifest_df[cols], width="stretch", height=320)
     excl = manifest_df.loc[~manifest_df["ok"], ["archivo", "motivo_falla"]]
     if not excl.empty:
         st.caption("Archivos detectados pero no incorporados:")
-        st.dataframe(excl, use_container_width=True, height=200)
+    st.dataframe(excl, width="stretch", height=200)
 
 
 # =========================
@@ -1380,7 +1640,11 @@ def render_manifest(manifest_df: pd.DataFrame, title: str = "Manifiesto de archi
 
 __all__ = [
     # Constantes de Dominio y Área
-    "DOM_LINEAS", "DOM_COPLES", "AREA_CODE_TO_LABEL", "AREA_LINEAS", "AREA_COPLES",
+    "DOM_LINEAS",
+    "DOM_COPLES",
+    "AREA_CODE_TO_LABEL",
+    "AREA_LINEAS",
+    "AREA_COPLES",
     "DOMAIN_BY_AREA_CODE",
     # Funciones de Carga de Datos
     "cargar_area",
@@ -1400,7 +1664,8 @@ __all__ = [
     "get_messages_from_df",
     "render_manifest",
     # Constantes de compatibilidad (etiquetas)
-    "LABEL_AREA_LINEAS", "LABEL_AREA_COPLES",
+    "LABEL_AREA_LINEAS",
+    "LABEL_AREA_COPLES",
 ]
 
 
@@ -1419,4 +1684,6 @@ if __name__ == "__main__":
     print("\n--- Probando Utilidades ---")
     test_fecha_str = "'16/04/2025"
     parsed_date = parse_fecha_str(test_fecha_str)
-    print(f"parse_fecha_str('{test_fecha_str}') -> {parsed_date} (Tipo: {type(parsed_date)})")
+    print(
+        f"parse_fecha_str('{test_fecha_str}') -> {parsed_date} (Tipo: {type(parsed_date)})"
+    )

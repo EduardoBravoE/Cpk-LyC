@@ -1,6 +1,7 @@
 # utils/style.py
 import streamlit as st
 
+
 def apply_theme():
     st.markdown(
         """
@@ -16,5 +17,5 @@ def apply_theme():
         .small-muted { color: #6b7280; font-size: 0.85rem; }
         </style>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )

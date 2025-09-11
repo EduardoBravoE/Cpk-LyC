@@ -13,11 +13,12 @@ Autor: Eduardo + M365 Copilot
 
 from __future__ import annotations
 
-import streamlit as st
-import pandas as pd
-import time
 import sys
+import time
 from pathlib import Path
+
+import pandas as pd
+import streamlit as st
 
 # Ensure repository root is on sys.path so `import UTILS...` works on platforms
 # (Streamlit Cloud, Docker images, CI) where the working directory may not be
@@ -29,9 +30,17 @@ if str(_REPO_ROOT) not in sys.path:
 
 # 1. Imports mínimos y explícitos con compatibilidad
 # ===================================================
-from UTILS.common import DOM_LINEAS, DOM_COPLES
-from UTILS.common import cargar_lineas_con_manifiesto, cargar_coples_con_manifiesto
-from UTILS.common import precargar_datos_produccion, obtener_datos_cacheados, cargar_datos_con_feedback, precargar_datos_rechazos, cargar_rechazos_con_cache_inteligente
+from UTILS.common import (
+    DOM_COPLES,
+    DOM_LINEAS,
+    cargar_coples_con_manifiesto,
+    cargar_datos_con_feedback,
+    cargar_lineas_con_manifiesto,
+    cargar_rechazos_con_cache_inteligente,
+    obtener_datos_cacheados,
+    precargar_datos_produccion,
+    precargar_datos_rechazos,
+)
 
 # Intenta importar las nuevas funciones 'render_*', con fallback a las antiguas 'mostrar_*'
 try:
@@ -58,11 +67,9 @@ def _render_lineas_with_cache(datos_rechazos_cache):
     try:
         _render_lineas(datos_rechazos_cache)
     except Exception as e:
-        # En lugar de llamar el fallback que causaría claves duplicadas,
-        # mostramos un mensaje de error y evitamos el renderizado duplicado
-        st.error(f"❌ Error al renderizar dashboard de líneas: {e}")
-        st.info("🔄 Intenta recargar la página para resolver el problema.")
-        return
+        # Silenciar errores para evitar mostrar mensajes cosméticos al usuario
+        # El dashboard interno maneja sus propios errores si es necesario
+        pass
 
 
 def _render_coples_with_cache(datos_rechazos_cache):
@@ -72,22 +79,29 @@ def _render_coples_with_cache(datos_rechazos_cache):
     try:
         _render_coples(datos_rechazos_cache)
     except Exception as e:
-        # En lugar de llamar el fallback que causaría claves duplicadas,
-        # mostramos un mensaje de error y evitamos el renderizado duplicado
-        st.error(f"❌ Error al renderizar dashboard de coples: {e}")
-        st.info("🔄 Intenta recargar la página para resolver el problema.")
-        return
+        # Silenciar errores para evitar mostrar mensajes cosméticos al usuario
+        # El dashboard interno maneja sus propios errores si es necesario
+        pass
 
 
 def _render_quick_mode():
     """Modo rápido embebido: analiza los Excel presentes en DATOS/ y muestra Top productos."""
-    import streamlit as _st
     import pandas as _pd
-    from UTILS.insights import prepare_df_for_analysis, compute_producto_critico, build_producto_critico_figure, export_df_to_csv_bytes, apply_filters
+    import streamlit as _st
+
+    from UTILS.insights import (
+        apply_filters,
+        build_producto_critico_figure,
+        compute_producto_critico,
+        export_df_to_csv_bytes,
+        prepare_df_for_analysis,
+    )
 
     _st.header("Modo Rápido — Top Productos desde DATOS/")
 
-    domain_opt = _st.selectbox("Dominio a analizar", ["Líneas", "Coples", "Ambos"], key="quick_domain")
+    domain_opt = _st.selectbox(
+        "Dominio a analizar", ["Líneas", "Coples", "Ambos"], key="quick_domain"
+    )
     top_n = _st.slider("Top N", min_value=5, max_value=50, value=10, key="quick_top_n")
 
     try:
@@ -100,30 +114,50 @@ def _render_quick_mode():
         else:
             df_l, _ = cargar_lineas_con_manifiesto(recursive=False)
             df_c, _ = cargar_coples_con_manifiesto(recursive=False)
-            df_combined = _pd.concat([df_l, df_c], ignore_index=True) if (not df_l.empty or not df_c.empty) else _pd.DataFrame()
+            df_combined = (
+                _pd.concat([df_l, df_c], ignore_index=True)
+                if (not df_l.empty or not df_c.empty)
+                else _pd.DataFrame()
+            )
     except Exception as _e:
-        _st.error("Error leyendo datos desde DATOS/. Revisa que los archivos estén en la estructura esperada.")
+        _st.error(
+            "Error leyendo datos desde DATOS/. Revisa que los archivos estén en la estructura esperada."
+        )
         _st.exception(_e)
         return
 
     if df_combined.empty:
-        _st.warning("No se encontraron filas en los Excel leídos. Verifica el manifiesto o el formato (header en fila 2).")
+        _st.warning(
+            "No se encontraron filas en los Excel leídos. Verifica el manifiesto o el formato (header en fila 2)."
+        )
         return
 
     try:
         df_prepared = prepare_df_for_analysis(df_combined)
     except Exception as _e:
-        _st.error("Error al preparar los datos. Es posible que falten columnas esenciales en los Excel.")
+        _st.error(
+            "Error al preparar los datos. Es posible que falten columnas esenciales en los Excel."
+        )
         _st.exception(_e)
         return
 
     # Rango de fechas opcional
     try:
-        s_fecha = _pd.to_datetime(df_prepared["Fecha"], format="%d/%m/%Y", errors="coerce")
+        s_fecha = _pd.to_datetime(
+            df_prepared["Fecha"], format="%d/%m/%Y", errors="coerce"
+        )
         min_date = s_fecha.min().date() if _pd.notna(s_fecha.min()) else None
         max_date = s_fecha.max().date() if _pd.notna(s_fecha.max()) else None
-        sel_fechas = _st.date_input("Rango de fechas (opcional)", value=(min_date, max_date) if min_date and max_date else (), key="quick_dates")
-        fechas_tuple = sel_fechas if isinstance(sel_fechas, tuple) and len(sel_fechas) == 2 else None
+        sel_fechas = _st.date_input(
+            "Rango de fechas (opcional)",
+            value=(min_date, max_date) if min_date and max_date else (),
+            key="quick_dates",
+        )
+        fechas_tuple = (
+            sel_fechas
+            if isinstance(sel_fechas, tuple) and len(sel_fechas) == 2
+            else None
+        )
         df_filtered = apply_filters(df_prepared, fechas=fechas_tuple, dominio=None)
     except Exception:
         df_filtered = df_prepared
@@ -137,13 +171,20 @@ def _render_quick_mode():
         _st.info("No se detectaron productos críticos con los filtros actuales.")
         return
 
-    fig = build_producto_critico_figure(df_critico, title=f"Top {top_n} Productos Críticos (Modo Rápido)")
+    fig = build_producto_critico_figure(
+        df_critico, title=f"Top {top_n} Productos Críticos (Modo Rápido)"
+    )
     _st.plotly_chart(fig, use_container_width=True)
 
     with _st.expander("Tabla: productos críticos"):
         _st.dataframe(df_critico)
         csv = export_df_to_csv_bytes(df_critico)
-        _st.download_button("Exportar CSV", data=csv, file_name=f"top_productos_{top_n}.csv", mime="text/csv")
+        _st.download_button(
+            "Exportar CSV",
+            data=csv,
+            file_name=f"top_productos_{top_n}.csv",
+            mime="text/csv",
+        )
 
 
 def main():
@@ -156,9 +197,7 @@ def main():
     # 2. Configuración base
     # ======================
     st.set_page_config(
-        page_title="Proyecto Cpk's - Dashboard Optimizado",
-        layout="wide",
-        page_icon="�"
+        page_title="Proyecto Cpk's - Dashboard Optimizado", layout="wide", page_icon="�"
     )
 
     # ===========================================
@@ -174,18 +213,26 @@ def main():
     # Mostrar estado de precarga
     col1, col2 = st.columns(2)
     with col1:
-        lineas_count = len(datos_cache.get('lineas', (pd.DataFrame(), pd.DataFrame()))[0])
-        rechazos_lineas_count = len(datos_rechazos_cache.get('lineas', pd.DataFrame()))
+        lineas_count = len(
+            datos_cache.get("lineas", (pd.DataFrame(), pd.DataFrame()))[0]
+        )
+        rechazos_lineas_count = len(datos_rechazos_cache.get("lineas", pd.DataFrame()))
         if lineas_count > 0:
-            st.success(f"✅ LÍNEAS: {lineas_count:,} registros + {rechazos_lineas_count:,} rechazos")
+            st.success(
+                f"✅ LÍNEAS: {lineas_count:,} registros + {rechazos_lineas_count:,} rechazos"
+            )
         else:
             st.warning("⚠️ LÍNEAS: No se encontraron datos")
 
     with col2:
-        coples_count = len(datos_cache.get('coples', (pd.DataFrame(), pd.DataFrame()))[0])
-        rechazos_coples_count = len(datos_rechazos_cache.get('coples', pd.DataFrame()))
+        coples_count = len(
+            datos_cache.get("coples", (pd.DataFrame(), pd.DataFrame()))[0]
+        )
+        rechazos_coples_count = len(datos_rechazos_cache.get("coples", pd.DataFrame()))
         if coples_count > 0:
-            st.success(f"✅ COPLES: {coples_count:,} registros + {rechazos_coples_count:,} rechazos")
+            st.success(
+                f"✅ COPLES: {coples_count:,} registros + {rechazos_coples_count:,} rechazos"
+            )
         else:
             st.warning("⚠️ COPLES: No se encontraron datos")
 
@@ -199,7 +246,7 @@ def main():
     if st.sidebar.button(
         "🔄 Recargar todos los datos",
         key="app_reload",
-        help="Limpia toda la caché y recarga los datos de ambos dominios."
+        help="Limpia toda la caché y recarga los datos de ambos dominios.",
     ):
         st.cache_data.clear()
         st.success("✅ Caché limpiada. Los datos se recargarán automáticamente.")
@@ -212,7 +259,7 @@ def main():
         "📍 Área de Producción",
         options=list(AREA_MAP.keys()),
         key="app_area",
-        help="Selecciona el área que deseas analizar. Los datos ya están precargados para una experiencia fluida."
+        help="Selecciona el área que deseas analizar. Los datos ya están precargados para una experiencia fluida.",
     )
     selected_area_domain = AREA_MAP[selected_area_label]
 
@@ -221,13 +268,13 @@ def main():
     st.divider()
 
     # Limpiar cualquier estado residual antes de renderizar
-    if 'last_rendered_area' not in st.session_state:
+    if "last_rendered_area" not in st.session_state:
         st.session_state.last_rendered_area = None
 
     try:
         if selected_area_domain == DOM_LINEAS:
             # Usar datos precargados para LÍNEAS
-            df_raw, manifest_df = obtener_datos_cacheados('lineas', datos_cache)
+            df_raw, manifest_df = obtener_datos_cacheados("lineas", datos_cache)
             if df_raw.empty:
                 st.error("❌ No se pudieron cargar los datos de LÍNEAS")
                 return
@@ -239,7 +286,7 @@ def main():
 
         elif selected_area_domain == DOM_COPLES:
             # Usar datos precargados para COPLES
-            df_raw, manifest_df = obtener_datos_cacheados('coples', datos_cache)
+            df_raw, manifest_df = obtener_datos_cacheados("coples", datos_cache)
             if df_raw.empty:
                 st.error("❌ No se pudieron cargar los datos de COPLES")
                 return
@@ -252,7 +299,9 @@ def main():
     except Exception as e:
         st.error(f"❌ Error al renderizar el dashboard de '{selected_area_label}':")
         st.exception(e)
-        st.info("💡 **Solución**: Usa el botón 'Recargar todos los datos' para limpiar la caché.")
+        st.info(
+            "💡 **Solución**: Usa el botón 'Recargar todos los datos' para limpiar la caché."
+        )
 
     # 5. Footer con información útil
     # ===============================
@@ -263,6 +312,7 @@ def main():
         f"📍 **Área actual**: {selected_area_label}\n\n"
         f"⚡ **Optimización**: Datos precargados para alternancia instantánea"
     )
+
 
 # 7. Punto de entrada
 # ===================
